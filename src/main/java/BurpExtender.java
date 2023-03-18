@@ -1,22 +1,20 @@
-import burp.IBurpExtender;
-import burp.IBurpExtenderCallbacks;
-import burp.IExtensionHelpers;
+import burp.api.montoya.BurpExtension;
+import burp.api.montoya.MontoyaApi;
 
-public class BurpExtender implements IBurpExtender {
+import javax.swing.*;
 
-    private IBurpExtenderCallbacks callbacks;
-    private IExtensionHelpers helpers;
+public class BurpExtender implements BurpExtension {
+
+    private MontoyaApi api;
 
     @Override
-    public void registerExtenderCallbacks(IBurpExtenderCallbacks callbacks) {
+    public void initialize(MontoyaApi montoyaApi) {
 
-        this.callbacks = callbacks;
-        helpers = callbacks.getHelpers();
-        callbacks.setExtensionName("DirDigger");
-        callbacks.addSuiteTab(new DirDiggerTab(callbacks, helpers));
+        this.api = montoyaApi;
+        api.extension().setName("DirDigger");
 
-        // This is how we receive helper's object reference from callback instance.
-//        IExtensionHelpers helpers = callbacks.getHelpers();
-
+        JPanel panel = new DirDigger().getFrame();
+        api.userInterface().registerSuiteTab("DirDigger", panel);
     }
+
 }

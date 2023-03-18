@@ -1,4 +1,3 @@
-import burp.IBurpExtenderCallbacks;
 import utils.UrlUtils;
 
 import javax.swing.*;
@@ -16,8 +15,6 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
 
     private ExecutorService executorService;
 
-    private IBurpExtenderCallbacks callbacks;
-
     private final String url;
     private final int currentDepth;
     private int maxDepth;
@@ -28,7 +25,6 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
     private DefaultMutableTreeNode root;
 
     private DiggerWorker(DiggerWorkerBuilder builder) {
-        this.callbacks = builder.callbacks;
         this.executorService = builder.executorService;
         this.url = builder.url;
         this.currentDepth = builder.currentDepth;
@@ -68,7 +64,6 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
                         .threadPool(executorService)
                         .directoryList(dirsAndFilesList)
                         .maxDepth(maxDepth)
-                        .callbacks(callbacks)
                         .tree(tree)
                         .progressBar(progressBar)
                         .build();
@@ -151,8 +146,6 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
 
     public static class DiggerWorkerBuilder {
 
-        private IBurpExtenderCallbacks callbacks;
-
         private ExecutorService executorService;
 
         private final String url;
@@ -189,11 +182,6 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
 
         public DiggerWorkerBuilder progressBar(JProgressBar progressBar) {
             this.progressBar = progressBar;
-            return this;
-        }
-
-        public DiggerWorkerBuilder callbacks(IBurpExtenderCallbacks callbacks) {
-            this.callbacks = callbacks;
             return this;
         }
 

@@ -1,5 +1,3 @@
-import burp.IBurpExtenderCallbacks;
-import burp.IExtensionHelpers;
 import utils.Globals;
 
 import javax.swing.*;
@@ -32,17 +30,12 @@ public class DirDigger {
     private JSlider threadNumSlider;
     private JLabel threadNumSliderLabel;
 
-    private final IBurpExtenderCallbacks callbacks;
-    private final IExtensionHelpers helpers;
-
     private ExecutorService executorService;
 
-    public DirDigger(IBurpExtenderCallbacks callbacks, IExtensionHelpers helpers) {
+    public DirDigger() {
 
         createUIComponents();
         initThreadPool();
-        this.callbacks = callbacks;
-        this.helpers = helpers;
 
         BrowseFileListener browseFileListener = new BrowseFileListener(dirsAndFilesList);
         browseFiles.addActionListener(browseFileListener);
@@ -75,7 +68,6 @@ public class DirDigger {
                         .threadPool(executorService)
                         .directoryList(dirsAndFilesList)
                         .maxDepth(depthSlider.getValue())
-                        .callbacks(callbacks)
                         .tree(tree)
                         .progressBar(progressBar)
                         .build();
@@ -279,7 +271,7 @@ public class DirDigger {
 
                         .addComponent(verticalSeparator)
 
-                        .addComponent(treeScrollPane)
+                        .addComponent(tree)
         );
 
         layout.setVerticalGroup(
@@ -317,7 +309,7 @@ public class DirDigger {
 
                         .addComponent(verticalSeparator)
 
-                        .addComponent(treeScrollPane)
+                        .addComponent(tree)
         );
 
     }
