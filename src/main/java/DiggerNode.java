@@ -1,6 +1,5 @@
 import utils.UrlUtils;
 
-import javax.swing.*;
 import javax.swing.tree.DefaultMutableTreeNode;
 
 public class DiggerNode {
@@ -8,7 +7,6 @@ public class DiggerNode {
     private DefaultMutableTreeNode parent;
     private String url;
     private UrlUtils.HttpResponseCodeStatus responseStatus;
-    private String icon;
 
     public DiggerNode(DefaultMutableTreeNode parent, String url, UrlUtils.HttpResponseCodeStatus responseStatus) {
         this.parent = parent;
@@ -45,11 +43,4 @@ public class DiggerNode {
         this.responseStatus = responseStatus;
     }
 
-    public String getIcon() {
-        return icon;
-    }
-
-    public void setIcon(String icon) {
-        this.icon = icon;
-    }
 }

@@ -1,4 +1,3 @@
-import burp.api.montoya.logging.Logging;
 import utils.UrlUtils;
 
 import javax.swing.*;
@@ -19,7 +18,7 @@ public class CustomIconRenderer extends DefaultTreeCellRenderer {
         switch (responseStatus) {
             case INFORMATIONAL:
                 if (leaf) {
-                    setIcon(new ImageIcon(CustomIconRenderer.class.getResource("/home/marko/DirDigger/src/main/resources/images/info-document.png")));
+                    setIcon(new ImageIcon(CustomIconRenderer.class.getResource("images/info-document.png")));
                 } else {
                     if (expanded) {
                         setIcon(new ImageIcon(CustomIconRenderer.class.getResource("images/info-dir-open.png")));
