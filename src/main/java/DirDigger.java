@@ -1,17 +1,24 @@
+import burp.api.montoya.logging.Logging;
 import utils.Globals;
+import utils.UrlUtils;
 
+import javax.imageio.ImageIO;
 import javax.swing.*;
 import javax.swing.border.LineBorder;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreePath;
 import java.awt.*;
+import java.awt.image.BufferedImage;
+import java.io.File;
 import java.util.Hashtable;
 import java.util.concurrent.*;
 
 public class DirDigger {
 
     private static final int MAX_WORKER_THREADS = 10;
+
+    private final Logging logging;
 
     private JPanel panel;
     private JLabel urlOrDomainLabel;
@@ -32,7 +39,9 @@ public class DirDigger {
 
     private ExecutorService executorService;
 
-    public DirDigger() {
+    public DirDigger(Logging logging) {
+
+        this.logging = logging;
 
         createUIComponents();
         initThreadPool();
@@ -60,7 +69,7 @@ public class DirDigger {
                 }
 
                 DefaultTreeModel model = (DefaultTreeModel) tree.getModel();
-                DefaultMutableTreeNode child = new DefaultMutableTreeNode(url);
+                DefaultMutableTreeNode child = new DefaultMutableTreeNode(new DiggerNode(null, url, UrlUtils.HttpResponseCodeStatus.SUCCESS));
                 model.setRoot(child);
                 tree.scrollPathToVisible(new TreePath(child.getPath()));
 
@@ -223,9 +232,57 @@ public class DirDigger {
         verticalSeparator.setMaximumSize(new Dimension(5, 10000));
         verticalSeparator.setMinimumSize(new Dimension(5, 10000));
 
+        JSeparator fourthHorizontalSeparator = new JSeparator();
+        fourthHorizontalSeparator.setOrientation(SwingConstants.HORIZONTAL);
+        fourthHorizontalSeparator.setMaximumSize(new Dimension(600, fourthHorizontalSeparator.getPreferredSize().height));
+        fourthHorizontalSeparator.setMinimumSize(new Dimension(600, fourthHorizontalSeparator.getPreferredSize().height));
+
+        JLabel legendHeader = new JLabel("Legend");
+        legendHeader.setFont(new Font("Calibri", Font.BOLD, 20));
+
+        // success color - #81F77E
+        // info color - #0D84A1
+        // redirect color - #FB4F4F
+        // client error color - #EBF582
+        // server error color - #890DA1
+
+        BufferedImage iconInfo = null;
+        BufferedImage iconSuccess = null;
+        BufferedImage iconRedirect = null;
+        BufferedImage iconClientError = null;
+        BufferedImage iconServerError = null;
+        try {
+            iconInfo = ImageIO.read(new File("/home/marko/Downloads/dirdigger_icons/info-circle.png"));
+            iconSuccess = ImageIO.read(new File("/home/marko/Downloads/dirdigger_icons/success-circle.png"));
+            iconRedirect = ImageIO.read(new File("/home/marko/Downloads/dirdigger_icons/redirect-circle.png"));
+            iconClientError = ImageIO.read(new File("/home/marko/Downloads/dirdigger_icons/client_error-circle.png"));
+            iconServerError = ImageIO.read(new File("/home/marko/Downloads/dirdigger_icons/server_error-circle.png"));
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        JLabel legendCircleInfo = new JLabel(new ImageIcon(iconInfo));
+        JLabel legendCircleSuccess = new JLabel(new ImageIcon(iconSuccess));
+        JLabel legendCircleRedirect = new JLabel(new ImageIcon(iconRedirect));
+        JLabel legendCircleClientError = new JLabel(new ImageIcon(iconClientError));
+        JLabel legendCircleServerError = new JLabel(new ImageIcon(iconServerError));
+
+        JLabel legendInfo = new JLabel("1xx Informational");
+        JLabel legendSuccess = new JLabel("2xx Success");
+        JLabel legendRedirect = new JLabel("3xx Redirection");
+        JLabel legendClientError = new JLabel("4xx Client error");
+        JLabel legendServerError = new JLabel("5xx Server error");
+
         tree = new JTree();
         tree.setVisible(false);
+//        tree.setRootVisible(false);
+        DefaultTreeModel model = (DefaultTreeModel) tree.getModel();
+        DefaultMutableTreeNode tempRoot = new DefaultMutableTreeNode(new DiggerNode(null, "", UrlUtils.HttpResponseCodeStatus.SUCCESS));
+        model.setRoot(tempRoot);
+        CustomIconRenderer customIconRenderer = new CustomIconRenderer();
+        tree.setCellRenderer(customIconRenderer);
         JScrollPane treeScrollPane = new JScrollPane(tree);
+//        treeScrollPane.setMaximumSize(new Dimension(700, 500));
+//        treeScrollPane.setMinimumSize(new Dimension(700, 500));
 
         // remainder about GroupLayout https://stackoverflow.com/questions/35252026/aligning-vertical-and-horizontal-sequentialgroup-in-swing
         GroupLayout layout = new GroupLayout(panel);
@@ -267,6 +324,31 @@ public class DirDigger {
                                 .addComponent(errorMessage)
                                 .addComponent(startDigging)
                                 .addComponent(progressBar)
+                                .addComponent(fourthHorizontalSeparator)
+
+                                .addComponent(legendHeader)
+                                .addGroup(layout.createParallelGroup()
+                                        .addGroup(layout.createSequentialGroup()
+                                                .addComponent(legendCircleInfo)
+                                                .addComponent(legendInfo)
+                                        )
+                                        .addGroup(layout.createSequentialGroup()
+                                                .addComponent(legendCircleSuccess)
+                                                .addComponent(legendSuccess)
+                                        )
+                                        .addGroup(layout.createSequentialGroup()
+                                                .addComponent(legendCircleRedirect)
+                                                .addComponent(legendRedirect)
+                                        )
+                                        .addGroup(layout.createSequentialGroup()
+                                                .addComponent(legendCircleClientError)
+                                                .addComponent(legendClientError)
+                                        )
+                                        .addGroup(layout.createSequentialGroup()
+                                                .addComponent(legendCircleServerError)
+                                                .addComponent(legendServerError)
+                                        )
+                                )
                         )
 
                         .addComponent(verticalSeparator)
@@ -301,10 +383,36 @@ public class DirDigger {
                                                 .addComponent(threadNumSliderLabel)
                                                 .addComponent(threadNumSlider)
                                         )
+
                                         .addComponent(thirdHorizontalSeparator)
+
                                         .addComponent(errorMessage)
                                         .addComponent(startDigging)
                                         .addComponent(progressBar)
+
+                                        .addComponent(fourthHorizontalSeparator)
+
+                                        .addComponent(legendHeader)
+                                        .addGroup(layout.createParallelGroup()
+                                                .addComponent(legendCircleInfo)
+                                                .addComponent(legendInfo)
+                                        )
+                                        .addGroup(layout.createParallelGroup()
+                                                .addComponent(legendCircleSuccess)
+                                                .addComponent(legendSuccess)
+                                        )
+                                        .addGroup(layout.createParallelGroup()
+                                                .addComponent(legendCircleRedirect)
+                                                .addComponent(legendRedirect)
+                                        )
+                                        .addGroup(layout.createParallelGroup()
+                                                .addComponent(legendCircleClientError)
+                                                .addComponent(legendClientError)
+                                        )
+                                        .addGroup(layout.createParallelGroup()
+                                                .addComponent(legendCircleServerError)
+                                                .addComponent(legendServerError)
+                                        )
                         )
 
                         .addComponent(verticalSeparator)

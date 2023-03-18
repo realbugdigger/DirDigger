@@ -13,7 +13,7 @@ public class BurpExtender implements BurpExtension {
         this.api = montoyaApi;
         api.extension().setName("DirDigger");
 
-        JPanel panel = new DirDigger().getFrame();
+        JPanel panel = new DirDigger(api.logging()).getFrame();
         api.userInterface().registerSuiteTab("DirDigger", panel);
     }
 

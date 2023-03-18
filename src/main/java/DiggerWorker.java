@@ -57,7 +57,7 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
             if (rCode != 404 && depth < maxDepth) {
 
                 DefaultMutableTreeNode parent = findParentNode(potential, root);
-                DiggerNode node = new DiggerNode(parent, potential);
+                DiggerNode node = new DiggerNode(parent, potential, UrlUtils.getResponseStatus(rCode));
                 publish(node);
 
                 DiggerWorker diggerWorker = new DiggerWorker.DiggerWorkerBuilder(potential  + "/", currentDepth + 1)
@@ -75,7 +75,7 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
     @Override
     protected void process(List<DiggerNode> nodes) {
         for (DiggerNode node : nodes) {
-            addNode(node.getParent(), node.getUrl());
+            addNode(node);
             progressBar.setMaximum(progressBar.getMaximum() + 300);
         }
     }
@@ -86,9 +86,10 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
         dirsAndFilesList.setModel(new DefaultListModel<>());
     }
 
-    private void addNode(DefaultMutableTreeNode parent, String url) {
+    private void addNode(DiggerNode node) {
         DefaultTreeModel model = (DefaultTreeModel) tree.getModel();
-        parent.add(new DefaultMutableTreeNode(url));
+        DefaultMutableTreeNode parent = node.getParent();
+        parent.add(new DefaultMutableTreeNode(node));
         model.reload(parent);
     }
 
@@ -97,7 +98,8 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
 
         for (int i = 0; i < root.getChildCount(); i++) {
             DefaultMutableTreeNode childNode = (DefaultMutableTreeNode) root.getChildAt(i);
-            String childNodeUrl = (String) childNode.getUserObject();
+            DiggerNode childDiggerNode = (DiggerNode) childNode.getUserObject();
+            String childNodeUrl = childDiggerNode.getUrl();
 
             if(shouldLookIntoChild(newUrl, childNodeUrl)) {
                 if (shouldAddInThisChild(newUrl, childNodeUrl)) {
