@@ -1,13 +1,24 @@
+import utils.UrlUtils;
+
+import javax.swing.*;
 import javax.swing.tree.DefaultMutableTreeNode;
 
 public class DiggerNode {
 
     private DefaultMutableTreeNode parent;
     private String url;
+    private UrlUtils.HttpResponseCodeStatus responseStatus;
+    private String icon;
 
-    public DiggerNode(DefaultMutableTreeNode parent, String url) {
+    public DiggerNode(DefaultMutableTreeNode parent, String url, UrlUtils.HttpResponseCodeStatus responseStatus) {
         this.parent = parent;
         this.url = url;
+        this.responseStatus = responseStatus;
+    }
+
+    @Override
+    public String toString() {
+        return getUrl();
     }
 
     public DefaultMutableTreeNode getParent() {
@@ -24,5 +35,21 @@ public class DiggerNode {
 
     public void setUrl(String url) {
         this.url = url;
+    }
+
+    public UrlUtils.HttpResponseCodeStatus getResponseStatus() {
+        return responseStatus;
+    }
+
+    public void setResponseStatus(UrlUtils.HttpResponseCodeStatus responseStatus) {
+        this.responseStatus = responseStatus;
+    }
+
+    public String getIcon() {
+        return icon;
+    }
+
+    public void setIcon(String icon) {
+        this.icon = icon;
     }
 }
