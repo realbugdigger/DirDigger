@@ -10,8 +10,8 @@ import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreePath;
 import java.awt.*;
 import java.awt.image.BufferedImage;
-import java.io.File;
 import java.util.Hashtable;
+import java.util.List;
 import java.util.concurrent.*;
 
 public class DirDigger {
@@ -21,21 +21,50 @@ public class DirDigger {
     private final Logging logging;
 
     private JPanel panel;
-    private JLabel urlOrDomainLabel;
-    private JTextField urlOrDomainTextField;
+
+    private JLabel urlLabel;
+    private JTextField urlTextField;
     private JLabel fileExtensionsLabel;
-    private JButton browseFiles;
-    private JList<String> dirsAndFilesList;
-    private JLabel errorMessage;
+    private JTextField fileExtensionsTextField;
+
     private JLabel loadFileOfDirsLabel;
-    private JTextField extensionsTextField;
+    private JButton browseFiles;
+    private JLabel addDirListEntry;
+    private JTextField entryTextField;
+    private JButton addEntryButton;
+    private JButton clearDirList;
+    private JList<String> dirsAndFilesList;
+    private JScrollPane dirScrollPane;
+
+    private JLabel errorMessage;
     private JButton startDigging;
-    private JTree tree;
     private JProgressBar progressBar;
-    private JSlider depthSlider;
+
     private JLabel sliderDepthLabel;
-    private JSlider threadNumSlider;
+    private JSlider depthSlider;
     private JLabel threadNumSliderLabel;
+    private JSlider threadNumSlider;
+
+    private JLabel legendHeader;
+    private JLabel legendCircleInfo;
+    private JLabel legendCircleSuccess;
+    private JLabel legendCircleRedirect;
+    private JLabel legendCircleClientError;
+    private JLabel legendCircleServerError;
+    private JLabel legendInfo;
+    private JLabel legendSuccess;
+    private JLabel legendRedirect;
+    private JLabel legendClientError;
+    private JLabel legendServerError;
+
+    private JTree tree;
+    private JScrollPane treeScrollPane;
+
+    private JSeparator verticalSeparator;
+    private JSeparator firstHorizontalSeparator;
+    private JSeparator secondHorizontalSeparator;
+    private JSeparator thirdHorizontalSeparator;
+    private JSeparator fourthHorizontalSeparator;
 
     private ExecutorService executorService;
 
@@ -50,12 +79,19 @@ public class DirDigger {
         browseFiles.addActionListener(browseFileListener);
 
         startDigging.addActionListener(e -> {
-            if (urlOrDomainTextField.getText() != null && dirsAndFilesList.getModel().getSize() > 0) {
+            if (urlTextField.getText() != null && dirsAndFilesList.getModel().getSize() > 0) {
                 errorMessage.setVisible(false);
                 progressBar.setVisible(true);
                 tree.setVisible(true);
 
-                String url = urlOrDomainTextField.getText();
+                List<String> fileExtensions = null;
+                if (fileExtensionsTextField.getText() != null && !fileExtensionsTextField.getText().equals("")) {
+                    fileExtensions = List.of(fileExtensionsTextField.getText().split(
+                            fileExtensionsTextField.getText().contains(",") ? "," : " "
+                    ));
+                }
+
+                String url = urlTextField.getText();
 //                try {
 //                    URI uri = new URI(url);
 //                    URL url1 = new URL()
@@ -74,6 +110,7 @@ public class DirDigger {
                 tree.scrollPathToVisible(new TreePath(child.getPath()));
 
                 DiggerWorker diggerWorker = new DiggerWorker.DiggerWorkerBuilder(url, 0)
+                        .fileExtensions(fileExtensions)
                         .threadPool(executorService)
                         .directoryList(dirsAndFilesList)
                         .maxDepth(depthSlider.getValue())
@@ -95,6 +132,15 @@ public class DirDigger {
             }
         });
 
+        clearDirList.addActionListener(e -> dirsAndFilesList.setModel(new DefaultListModel<>()));
+
+        addEntryButton.addActionListener(e -> {
+            if (entryTextField.getText() != null || entryTextField.getText().equals("")) {
+                DefaultListModel<String> listModel = (DefaultListModel<String>) dirsAndFilesList.getModel();
+                listModel.add(0, entryTextField.getText());
+                entryTextField.setText("");
+            }
+        });
     }
 
     private void initThreadPool() {
@@ -123,48 +169,121 @@ public class DirDigger {
     }
 
     private void createUIComponents() {
-        browseFiles = new JButton("Browse");
 
         panel = new JPanel();
         panel.setName(Globals.APP_NAME);
 
-        urlOrDomainLabel = new JLabel("Target Url");
+        initTargetSection();
 
-        urlOrDomainTextField = new JFormattedTextField();
-        urlOrDomainTextField.setToolTipText("eg. https://example.org or example.org");
-        urlOrDomainTextField.setMaximumSize(new Dimension(500, urlOrDomainTextField.getPreferredSize().height));
-        urlOrDomainTextField.setMinimumSize(new Dimension(500, urlOrDomainTextField.getPreferredSize().height));
+        initLoadedDirectoriesSection();
+
+        initSettingsSection();
+
+        initStartAndProgressSection();
+
+        initLegendSection();
+
+        initSeparators();
+
+        initTree();
+
+        positionUIComponents();
+    }
+
+    private void initTargetSection() {
+        urlLabel = new JLabel("Target Url");
+
+        urlTextField = new JFormattedTextField();
+        urlTextField.setToolTipText("eg. https://example.org");
+        urlTextField.setMaximumSize(new Dimension(500, urlTextField.getPreferredSize().height));
+        urlTextField.setMinimumSize(new Dimension(500, urlTextField.getPreferredSize().height));
 
         fileExtensionsLabel = new JLabel("File Extensions");
 
-        extensionsTextField = new JFormattedTextField();
-        extensionsTextField.setToolTipText("php html sh asp txt");
-        extensionsTextField.setMaximumSize(new Dimension(500, extensionsTextField.getPreferredSize().height));
-        extensionsTextField.setMinimumSize(new Dimension(500, extensionsTextField.getPreferredSize().height));
+        fileExtensionsTextField = new JFormattedTextField();
+        fileExtensionsTextField.setToolTipText("php html sh asp txt");
+        fileExtensionsTextField.setMaximumSize(new Dimension(500, fileExtensionsTextField.getPreferredSize().height));
+        fileExtensionsTextField.setMinimumSize(new Dimension(500, fileExtensionsTextField.getPreferredSize().height));
+    }
 
-        JSeparator firstHorizontalSeparator = new JSeparator();
-        firstHorizontalSeparator.setOrientation(SwingConstants.HORIZONTAL);
-        firstHorizontalSeparator.setMaximumSize(new Dimension(600, firstHorizontalSeparator.getPreferredSize().height));
-        firstHorizontalSeparator.setMinimumSize(new Dimension(600, firstHorizontalSeparator.getPreferredSize().height));
+    private void initLoadedDirectoriesSection() {
+        loadFileOfDirsLabel = new JLabel("Load file of dirs and files");
+
+        browseFiles = new JButton("Browse");
+
+        addDirListEntry = new JLabel("Add entry to list");
+
+        entryTextField = new JTextField();
+        entryTextField.setMaximumSize(new Dimension(200, entryTextField.getPreferredSize().height));
+        entryTextField.setMinimumSize(new Dimension(200, entryTextField.getPreferredSize().height));
+
+        addEntryButton = new JButton("Add");
+
+        clearDirList = new JButton("Clear list");
 
         DefaultListModel<String> listModel = new DefaultListModel<>();
         dirsAndFilesList = new JList<>(listModel);
         dirsAndFilesList.setMaximumSize(new Dimension(600, 500));
         dirsAndFilesList.setMinimumSize(new Dimension(600, 500));
         dirsAndFilesList.setBorder(new LineBorder(new Color(0,0,0), 1));
-        JScrollPane scrollPane = new JScrollPane(dirsAndFilesList);
-        scrollPane.setMaximumSize(new Dimension(600, 500));
-        scrollPane.setMinimumSize(new Dimension(600, 500));
 
-        JSeparator secondHorizontalSeparator = new JSeparator();
-        secondHorizontalSeparator.setOrientation(SwingConstants.HORIZONTAL);
-        secondHorizontalSeparator.setMaximumSize(new Dimension(600, secondHorizontalSeparator.getPreferredSize().height));
-        secondHorizontalSeparator.setMinimumSize(new Dimension(600, secondHorizontalSeparator.getPreferredSize().height));
+        dirScrollPane = new JScrollPane(dirsAndFilesList);
+        dirScrollPane.setMaximumSize(new Dimension(600, 500));
+        dirScrollPane.setMinimumSize(new Dimension(600, 500));
+    }
 
+    private void initSettingsSection() {
+        sliderDepthLabel = new JLabel("Depth of directories");
+
+        depthSlider = new JSlider(1, 7);
+
+        depthSlider.setPaintTrack(true);
+        depthSlider.setPaintTicks(true);
+        depthSlider.setPaintLabels(true);
+
+        depthSlider.setMajorTickSpacing(20);
+        depthSlider.setMinorTickSpacing(5);
+
+        depthSlider.setMinimumSize(new Dimension(400, depthSlider.getPreferredSize().height));
+        depthSlider.setMaximumSize(new Dimension(400, depthSlider.getPreferredSize().height));
+
+        Hashtable<Integer, JLabel> labels = new Hashtable<>();
+        labels.put(1, new JLabel("1"));
+        labels.put(2, new JLabel("2"));
+        labels.put(3, new JLabel("3"));
+        labels.put(4, new JLabel("4"));
+        labels.put(5, new JLabel("5"));
+        labels.put(6, new JLabel("6"));
+        labels.put(7, new JLabel("7"));
+        depthSlider.setLabelTable(labels);
+
+        threadNumSliderLabel = new JLabel("Number of threads");
+
+        threadNumSlider = new JSlider(1, 100);
+
+        threadNumSlider.setPaintTrack(true);
+        threadNumSlider.setPaintTicks(true);
+        threadNumSlider.setPaintLabels(true);
+
+        threadNumSlider.setMajorTickSpacing(20);
+        threadNumSlider.setMinorTickSpacing(5);
+
+        threadNumSlider.setMinimumSize(new Dimension(400, threadNumSlider.getPreferredSize().height));
+        threadNumSlider.setMaximumSize(new Dimension(400, threadNumSlider.getPreferredSize().height));
+
+        Hashtable<Integer, JLabel> labelsTHSlider = new Hashtable<>();
+        for (int i = 0; i <= 100; i=i+5) {
+            if (i % 10 == 0)
+                labelsTHSlider.put(i, new JLabel(String.format("%d", i)));
+            else
+                labelsTHSlider.put(i, new JLabel(""));
+        }
+        threadNumSlider.setLabelTable(labelsTHSlider);
+    }
+
+    private void initStartAndProgressSection() {
         errorMessage = new JLabel();
         errorMessage.setVisible(false);
-
-        loadFileOfDirsLabel = new JLabel("Load file of dirs and files");
 
         startDigging = new JButton("Start Digging");
         startDigging.setMaximumSize(new Dimension(600, startDigging.getPreferredSize().height));
@@ -176,68 +295,10 @@ public class DirDigger {
         progressBar.setValue(0);
         progressBar.setStringPainted(true);
         progressBar.setVisible(false);
+    }
 
-        JSeparator thirdHorizontalSeparator = new JSeparator();
-        thirdHorizontalSeparator.setOrientation(SwingConstants.HORIZONTAL);
-        thirdHorizontalSeparator.setMaximumSize(new Dimension(600, thirdHorizontalSeparator.getPreferredSize().height));
-        thirdHorizontalSeparator.setMinimumSize(new Dimension(600, thirdHorizontalSeparator.getPreferredSize().height));
-
-        depthSlider = new JSlider(1, 7);
-        // Paint the track and label
-        depthSlider.setPaintTrack(true);
-        depthSlider.setPaintTicks(true);
-        depthSlider.setPaintLabels(true);
-        // Set the spacing
-        depthSlider.setMajorTickSpacing(20);
-        depthSlider.setMinorTickSpacing(5);
-        depthSlider.setMinimumSize(new Dimension(400, depthSlider.getPreferredSize().height));
-        depthSlider.setMaximumSize(new Dimension(400, depthSlider.getPreferredSize().height));
-        // set slider labels
-        Hashtable<Integer, JLabel> labels = new Hashtable<>();
-        labels.put(1, new JLabel("1"));
-        labels.put(2, new JLabel("2"));
-        labels.put(3, new JLabel("3"));
-        labels.put(4, new JLabel("4"));
-        labels.put(5, new JLabel("5"));
-        labels.put(6, new JLabel("6"));
-        labels.put(7, new JLabel("7"));
-        depthSlider.setLabelTable(labels);
-
-        sliderDepthLabel = new JLabel("Depth of directories");
-
-        threadNumSlider = new JSlider(1, 100);
-        // Paint the track and label
-        threadNumSlider.setPaintTrack(true);
-        threadNumSlider.setPaintTicks(true);
-        threadNumSlider.setPaintLabels(true);
-        // Set the spacing
-        threadNumSlider.setMajorTickSpacing(20);
-        threadNumSlider.setMinorTickSpacing(5);
-        threadNumSlider.setMinimumSize(new Dimension(400, threadNumSlider.getPreferredSize().height));
-        threadNumSlider.setMaximumSize(new Dimension(400, threadNumSlider.getPreferredSize().height));
-        // set slider labels
-        Hashtable<Integer, JLabel> labelsTHSlider = new Hashtable<>();
-        for (int i = 0; i <= 100; i=i+5) {
-            if (i % 10 == 0)
-                labelsTHSlider.put(i, new JLabel(String.format("%d", i)));
-            else
-                labelsTHSlider.put(i, new JLabel(""));
-        }
-        threadNumSlider.setLabelTable(labelsTHSlider);
-
-        threadNumSliderLabel = new JLabel("Number of threads");
-
-        JSeparator verticalSeparator = new JSeparator();
-        verticalSeparator.setOrientation(SwingConstants.VERTICAL);
-        verticalSeparator.setMaximumSize(new Dimension(5, 10000));
-        verticalSeparator.setMinimumSize(new Dimension(5, 10000));
-
-        JSeparator fourthHorizontalSeparator = new JSeparator();
-        fourthHorizontalSeparator.setOrientation(SwingConstants.HORIZONTAL);
-        fourthHorizontalSeparator.setMaximumSize(new Dimension(600, fourthHorizontalSeparator.getPreferredSize().height));
-        fourthHorizontalSeparator.setMinimumSize(new Dimension(600, fourthHorizontalSeparator.getPreferredSize().height));
-
-        JLabel legendHeader = new JLabel("Legend");
+    private void initLegendSection() {
+        legendHeader = new JLabel("Legend");
         legendHeader.setFont(new Font("Calibri", Font.BOLD, 20));
 
         // success color - #81F77E
@@ -252,26 +313,55 @@ public class DirDigger {
         BufferedImage iconClientError = null;
         BufferedImage iconServerError = null;
         try {
-            iconInfo = ImageIO.read(new File("/home/marko/Downloads/dirdigger_icons/info-circle.png"));
-            iconSuccess = ImageIO.read(new File("/home/marko/Downloads/dirdigger_icons/success-circle.png"));
-            iconRedirect = ImageIO.read(new File("/home/marko/Downloads/dirdigger_icons/redirect-circle.png"));
-            iconClientError = ImageIO.read(new File("/home/marko/Downloads/dirdigger_icons/client_error-circle.png"));
-            iconServerError = ImageIO.read(new File("/home/marko/Downloads/dirdigger_icons/server_error-circle.png"));
+            iconInfo = ImageIO.read((DirDigger.class.getResource("images/info-circle.png")));
+            iconSuccess = ImageIO.read((DirDigger.class.getResource("images/success-circle.png")));
+            iconRedirect = ImageIO.read((DirDigger.class.getResource("images/redirect-circle.png")));
+            iconClientError = ImageIO.read((DirDigger.class.getResource("images/client_error-circle.png")));
+            iconServerError = ImageIO.read((DirDigger.class.getResource("images/server_error-circle.png")));
         } catch (Exception e) {
             e.printStackTrace();
         }
-        JLabel legendCircleInfo = new JLabel(new ImageIcon(iconInfo));
-        JLabel legendCircleSuccess = new JLabel(new ImageIcon(iconSuccess));
-        JLabel legendCircleRedirect = new JLabel(new ImageIcon(iconRedirect));
-        JLabel legendCircleClientError = new JLabel(new ImageIcon(iconClientError));
-        JLabel legendCircleServerError = new JLabel(new ImageIcon(iconServerError));
+        legendCircleInfo = new JLabel(new ImageIcon(iconInfo));
+        legendCircleSuccess = new JLabel(new ImageIcon(iconSuccess));
+        legendCircleRedirect = new JLabel(new ImageIcon(iconRedirect));
+        legendCircleClientError = new JLabel(new ImageIcon(iconClientError));
+        legendCircleServerError = new JLabel(new ImageIcon(iconServerError));
 
-        JLabel legendInfo = new JLabel("1xx Informational");
-        JLabel legendSuccess = new JLabel("2xx Success");
-        JLabel legendRedirect = new JLabel("3xx Redirection");
-        JLabel legendClientError = new JLabel("4xx Client error");
-        JLabel legendServerError = new JLabel("5xx Server error");
+        legendInfo = new JLabel("1xx Informational");
+        legendSuccess = new JLabel("2xx Success");
+        legendRedirect = new JLabel("3xx Redirection");
+        legendClientError = new JLabel("4xx Client error");
+        legendServerError = new JLabel("5xx Server error");
+    }
 
+    private void initSeparators() {
+        firstHorizontalSeparator = new JSeparator();
+        firstHorizontalSeparator.setOrientation(SwingConstants.HORIZONTAL);
+        firstHorizontalSeparator.setMaximumSize(new Dimension(600, firstHorizontalSeparator.getPreferredSize().height));
+        firstHorizontalSeparator.setMinimumSize(new Dimension(600, firstHorizontalSeparator.getPreferredSize().height));
+
+        secondHorizontalSeparator = new JSeparator();
+        secondHorizontalSeparator.setOrientation(SwingConstants.HORIZONTAL);
+        secondHorizontalSeparator.setMaximumSize(new Dimension(600, secondHorizontalSeparator.getPreferredSize().height));
+        secondHorizontalSeparator.setMinimumSize(new Dimension(600, secondHorizontalSeparator.getPreferredSize().height));
+
+        thirdHorizontalSeparator = new JSeparator();
+        thirdHorizontalSeparator.setOrientation(SwingConstants.HORIZONTAL);
+        thirdHorizontalSeparator.setMaximumSize(new Dimension(600, thirdHorizontalSeparator.getPreferredSize().height));
+        thirdHorizontalSeparator.setMinimumSize(new Dimension(600, thirdHorizontalSeparator.getPreferredSize().height));
+
+        verticalSeparator = new JSeparator();
+        verticalSeparator.setOrientation(SwingConstants.VERTICAL);
+        verticalSeparator.setMaximumSize(new Dimension(5, 10000));
+        verticalSeparator.setMinimumSize(new Dimension(5, 10000));
+
+        fourthHorizontalSeparator = new JSeparator();
+        fourthHorizontalSeparator.setOrientation(SwingConstants.HORIZONTAL);
+        fourthHorizontalSeparator.setMaximumSize(new Dimension(600, fourthHorizontalSeparator.getPreferredSize().height));
+        fourthHorizontalSeparator.setMinimumSize(new Dimension(600, fourthHorizontalSeparator.getPreferredSize().height));
+    }
+
+    private void initTree() {
         tree = new JTree();
         tree.setVisible(false);
 //        tree.setRootVisible(false);
@@ -280,10 +370,11 @@ public class DirDigger {
         model.setRoot(tempRoot);
         CustomIconRenderer customIconRenderer = new CustomIconRenderer();
         tree.setCellRenderer(customIconRenderer);
-        JScrollPane treeScrollPane = new JScrollPane(tree);
-//        treeScrollPane.setMaximumSize(new Dimension(700, 500));
-//        treeScrollPane.setMinimumSize(new Dimension(700, 500));
 
+        treeScrollPane = new JScrollPane(tree);
+    }
+
+    private void positionUIComponents() {
         // remainder about GroupLayout https://stackoverflow.com/questions/35252026/aligning-vertical-and-horizontal-sequentialgroup-in-swing
         GroupLayout layout = new GroupLayout(panel);
         layout.setAutoCreateGaps(true);
@@ -297,21 +388,31 @@ public class DirDigger {
                         .addGroup(layout.createParallelGroup()
                                 .addGroup(layout.createParallelGroup(GroupLayout.Alignment.TRAILING)
                                         .addGroup(layout.createSequentialGroup()
-                                                .addComponent(urlOrDomainLabel)
-                                                .addComponent(urlOrDomainTextField)
+                                                .addComponent(urlLabel)
+                                                .addComponent(urlTextField)
                                         )
                                         .addGroup(layout.createSequentialGroup()
                                                 .addComponent(fileExtensionsLabel)
-                                                .addComponent(extensionsTextField)
+                                                .addComponent(fileExtensionsTextField)
                                         )
                                 )
+
                                 .addComponent(firstHorizontalSeparator)
+
                                 .addGroup(layout.createSequentialGroup()
                                         .addComponent(loadFileOfDirsLabel)
                                         .addComponent(browseFiles)
                                 )
-                                .addComponent(scrollPane)
+                                .addGroup(layout.createSequentialGroup()
+                                        .addComponent(addDirListEntry)
+                                        .addComponent(entryTextField)
+                                        .addComponent(addEntryButton)
+                                )
+                                .addComponent(clearDirList)
+                                .addComponent(dirScrollPane)
+
                                 .addComponent(secondHorizontalSeparator)
+
                                 .addGroup(layout.createSequentialGroup()
                                         .addComponent(sliderDepthLabel)
                                         .addComponent(depthSlider)
@@ -320,10 +421,13 @@ public class DirDigger {
                                         .addComponent(threadNumSliderLabel)
                                         .addComponent(threadNumSlider)
                                 )
+
                                 .addComponent(thirdHorizontalSeparator)
+
                                 .addComponent(errorMessage)
                                 .addComponent(startDigging)
                                 .addComponent(progressBar)
+
                                 .addComponent(fourthHorizontalSeparator)
 
                                 .addComponent(legendHeader)
@@ -360,65 +464,75 @@ public class DirDigger {
                 layout.createParallelGroup()
 
                         .addGroup(layout.createSequentialGroup()
-                                        .addGroup(layout.createParallelGroup()
-                                                        .addComponent(urlOrDomainLabel)
-                                                        .addComponent(urlOrDomainTextField)
-                                        )
-                                        .addGroup(layout.createParallelGroup()
-                                                .addComponent(fileExtensionsLabel)
-                                                .addComponent(extensionsTextField)
-                                        )
-                                        .addComponent(firstHorizontalSeparator)
-                                        .addGroup(layout.createParallelGroup()
-                                                .addComponent(loadFileOfDirsLabel)
-                                                .addComponent(browseFiles)
-                                        )
-                                        .addComponent(scrollPane)
-                                        .addComponent(secondHorizontalSeparator)
-                                        .addGroup(layout.createParallelGroup()
-                                                .addComponent(sliderDepthLabel)
-                                                .addComponent(depthSlider)
-                                        )
-                                        .addGroup(layout.createParallelGroup()
-                                                .addComponent(threadNumSliderLabel)
-                                                .addComponent(threadNumSlider)
-                                        )
 
-                                        .addComponent(thirdHorizontalSeparator)
+                                .addGroup(layout.createParallelGroup()
+                                        .addComponent(urlLabel)
+                                        .addComponent(urlTextField)
+                                )
+                                .addGroup(layout.createParallelGroup()
+                                        .addComponent(fileExtensionsLabel)
+                                        .addComponent(fileExtensionsTextField)
+                                )
 
-                                        .addComponent(errorMessage)
-                                        .addComponent(startDigging)
-                                        .addComponent(progressBar)
+                                .addComponent(firstHorizontalSeparator)
 
-                                        .addComponent(fourthHorizontalSeparator)
+                                .addGroup(layout.createParallelGroup()
+                                        .addComponent(loadFileOfDirsLabel)
+                                        .addComponent(browseFiles)
+                                )
+                                .addGroup(layout.createParallelGroup()
+                                        .addComponent(addDirListEntry)
+                                        .addComponent(entryTextField)
+                                        .addComponent(addEntryButton)
+                                )
+                                .addComponent(clearDirList)
+                                .addComponent(dirScrollPane)
 
-                                        .addComponent(legendHeader)
-                                        .addGroup(layout.createParallelGroup()
-                                                .addComponent(legendCircleInfo)
-                                                .addComponent(legendInfo)
-                                        )
-                                        .addGroup(layout.createParallelGroup()
-                                                .addComponent(legendCircleSuccess)
-                                                .addComponent(legendSuccess)
-                                        )
-                                        .addGroup(layout.createParallelGroup()
-                                                .addComponent(legendCircleRedirect)
-                                                .addComponent(legendRedirect)
-                                        )
-                                        .addGroup(layout.createParallelGroup()
-                                                .addComponent(legendCircleClientError)
-                                                .addComponent(legendClientError)
-                                        )
-                                        .addGroup(layout.createParallelGroup()
-                                                .addComponent(legendCircleServerError)
-                                                .addComponent(legendServerError)
-                                        )
+                                .addComponent(secondHorizontalSeparator)
+
+                                .addGroup(layout.createParallelGroup()
+                                        .addComponent(sliderDepthLabel)
+                                        .addComponent(depthSlider)
+                                )
+                                .addGroup(layout.createParallelGroup()
+                                        .addComponent(threadNumSliderLabel)
+                                        .addComponent(threadNumSlider)
+                                )
+
+                                .addComponent(thirdHorizontalSeparator)
+
+                                .addComponent(errorMessage)
+                                .addComponent(startDigging)
+                                .addComponent(progressBar)
+
+                                .addComponent(fourthHorizontalSeparator)
+
+                                .addComponent(legendHeader)
+                                .addGroup(layout.createParallelGroup()
+                                        .addComponent(legendCircleInfo)
+                                        .addComponent(legendInfo)
+                                )
+                                .addGroup(layout.createParallelGroup()
+                                        .addComponent(legendCircleSuccess)
+                                        .addComponent(legendSuccess)
+                                )
+                                .addGroup(layout.createParallelGroup()
+                                        .addComponent(legendCircleRedirect)
+                                        .addComponent(legendRedirect)
+                                )
+                                .addGroup(layout.createParallelGroup()
+                                        .addComponent(legendCircleClientError)
+                                        .addComponent(legendClientError)
+                                )
+                                .addGroup(layout.createParallelGroup()
+                                        .addComponent(legendCircleServerError)
+                                        .addComponent(legendServerError)
+                                )
                         )
 
                         .addComponent(verticalSeparator)
 
                         .addComponent(tree)
         );
-
     }
 }

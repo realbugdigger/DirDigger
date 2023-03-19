@@ -16,6 +16,7 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
     private ExecutorService executorService;
 
     private final String url;
+    List<String> fileExtensions;
     private final int currentDepth;
     private int maxDepth;
     private final JList<String> dirsAndFilesList;
@@ -27,6 +28,7 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
     private DiggerWorker(DiggerWorkerBuilder builder) {
         this.executorService = builder.executorService;
         this.url = builder.url;
+        this.fileExtensions = builder.fileExtensions;
         this.currentDepth = builder.currentDepth;
         this.maxDepth = builder.maxDepth;
         this.dirsAndFilesList = builder.dirsAndFilesList;
@@ -40,12 +42,12 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
     @Override
     protected String doInBackground() throws Exception {
 
-        recursive(url, currentDepth);
+        dig(url, currentDepth);
 
         return "Successfully finished";
     }
 
-    public void recursive(String url, int depth) {
+    public void dig(String url, int depth) {
         for (int i = 0; i < 30 /*dirList.getSize()*/; i++) {
 
             setProgress((i+1)*10);
@@ -61,6 +63,7 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
                 publish(node);
 
                 DiggerWorker diggerWorker = new DiggerWorker.DiggerWorkerBuilder(potential  + "/", currentDepth + 1)
+                        .fileExtensions(fileExtensions)
                         .threadPool(executorService)
                         .directoryList(dirsAndFilesList)
                         .maxDepth(maxDepth)
@@ -68,6 +71,18 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
                         .progressBar(progressBar)
                         .build();
                 executorService.submit(diggerWorker);
+            }
+
+            if (fileExtensions != null) {
+                for (String fileExtension : fileExtensions) {
+                    String potentialWithExtension = potential + "." + fileExtension;
+                    int responseCode = makeRequest(potentialWithExtension);
+                    if (responseCode != 404) {
+                        DefaultMutableTreeNode parent = findParentNode(potentialWithExtension, root);
+                        DiggerNode node = new DiggerNode(parent, potentialWithExtension, UrlUtils.getResponseStatus(responseCode));
+                        publish(node);
+                    }
+                }
             }
         }
     }
@@ -151,6 +166,7 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
         private ExecutorService executorService;
 
         private final String url;
+        private List<String> fileExtensions;
         private final int currentDepth;
         private int maxDepth;
         private JList<String> dirsAndFilesList;
@@ -160,6 +176,11 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
         public DiggerWorkerBuilder(String url, int currentDepth) {
             this.url = url;
             this.currentDepth = currentDepth;
+        }
+
+        public DiggerWorkerBuilder fileExtensions(List<String> fileExtensions) {
+            this.fileExtensions = fileExtensions;
+            return this;
         }
 
         public DiggerWorkerBuilder threadPool(ExecutorService executorService) {
