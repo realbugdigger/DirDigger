@@ -156,8 +156,6 @@ public class DirDigger {
         scrollPane.setMaximumSize(new Dimension(600, 500));
         scrollPane.setMinimumSize(new Dimension(600, 500));
 
-
-
         JSeparator secondHorizontalSeparator = new JSeparator();
         secondHorizontalSeparator.setOrientation(SwingConstants.HORIZONTAL);
         secondHorizontalSeparator.setMaximumSize(new Dimension(600, secondHorizontalSeparator.getPreferredSize().height));
