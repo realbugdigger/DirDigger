@@ -1,5 +1,6 @@
 package utils;
 
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -34,5 +35,21 @@ public final class UrlUtils {
             directories.add(matcher.group());
 
         return directories;
+    }
+
+    public static String getHostname(String url) {
+        return url.replaceFirst("^(http[s]?://\\.|http[s]?://|\\.)","");
+    }
+
+    public static String getScheme(String url) {
+        return url.substring(0, url.indexOf(":"));
+    }
+
+    public static int getPort(String url) {
+        try {
+            return new URL(url).getPort();
+        } catch (Exception e) {
+            return 80;
+        }
     }
 }

@@ -1,3 +1,5 @@
+package core;
+
 import burp.api.montoya.BurpExtension;
 import burp.api.montoya.MontoyaApi;
 
@@ -11,10 +13,10 @@ public class BurpExtender implements BurpExtension {
     public void initialize(MontoyaApi montoyaApi) {
 
         this.api = montoyaApi;
-        api.extension().setName("DirDigger");
+        api.extension().setName("core.DirDigger");
 
         JPanel panel = new DirDigger(api.logging()).getFrame();
-        api.userInterface().registerSuiteTab("DirDigger", panel);
+        api.userInterface().registerSuiteTab("core.DirDigger", panel);
     }
 
 }

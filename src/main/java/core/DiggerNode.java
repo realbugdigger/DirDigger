@@ -1,3 +1,5 @@
+package core;
+
 import utils.UrlUtils;
 
 import javax.swing.tree.DefaultMutableTreeNode;

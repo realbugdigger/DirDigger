@@ -1,4 +1,14 @@
+package core;
+
 import burp.api.montoya.logging.Logging;
+import org.apache.http.client.config.CookieSpecs;
+import org.apache.http.impl.nio.client.HttpAsyncClients;
+import org.apache.http.impl.nio.conn.PoolingNHttpClientConnectionManager;
+import org.apache.http.impl.nio.reactor.DefaultConnectingIOReactor;
+import org.apache.http.impl.nio.reactor.IOReactorConfig;
+import org.apache.http.nio.reactor.ConnectingIOReactor;
+import org.apache.http.nio.reactor.IOReactorException;
+import utils.DebugRedirectStrategy;
 import utils.Globals;
 import utils.UrlUtils;
 
@@ -10,13 +20,15 @@ import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreePath;
 import java.awt.*;
 import java.awt.image.BufferedImage;
-import java.util.Hashtable;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileReader;
+import java.io.IOException;
+import java.util.*;
 import java.util.List;
 import java.util.concurrent.*;
 
 public class DirDigger {
-
-    private static final int MAX_WORKER_THREADS = 10;
 
     private final Logging logging;
 
@@ -37,13 +49,15 @@ public class DirDigger {
     private JScrollPane dirScrollPane;
 
     private JLabel errorMessage;
-    private JButton startDigging;
+//    private JButton startDigging;
+    private JToggleButton startDigging;
     private JProgressBar progressBar;
 
     private JLabel sliderDepthLabel;
     private JSlider depthSlider;
     private JLabel threadNumSliderLabel;
     private JSlider threadNumSlider;
+    private JCheckBox followRedirect;
 
     private JLabel legendHeader;
     private JLabel legendCircleInfo;
@@ -68,18 +82,29 @@ public class DirDigger {
 
     private ExecutorService executorService;
 
+    private org.apache.http.impl.nio.client.CloseableHttpAsyncClient httpAsyncClient;
+
+    // HashSet or ArrayList ????
+    private List<String> entryList = new ArrayList<>();
+
     public DirDigger(Logging logging) {
 
         this.logging = logging;
 
         createUIComponents();
-        initThreadPool();
 
-        BrowseFileListener browseFileListener = new BrowseFileListener(dirsAndFilesList);
+        BrowseFileListener browseFileListener = new BrowseFileListener(dirsAndFilesList, entryList);
         browseFiles.addActionListener(browseFileListener);
 
         startDigging.addActionListener(e -> {
-            if (urlTextField.getText() != null && dirsAndFilesList.getModel().getSize() > 0) {
+            if (isValidToStart()) {
+                try {
+                    initHttpClient();
+                } catch (Exception ex) {
+                    System.out.println(ex.getMessage());
+                }
+                initThreadPool();
+
                 errorMessage.setVisible(false);
                 progressBar.setVisible(true);
                 tree.setVisible(true);
@@ -92,16 +117,8 @@ public class DirDigger {
                 }
 
                 String url = urlTextField.getText();
-//                try {
-//                    URI uri = new URI(url);
-//                    URL url1 = new URL()
-//                } catch (URISyntaxException ex) {
-//                    throw new RuntimeException(ex);
-//                }
-
-//                String rootDomain = url.replaceFirst("^(http[s]?://www\\.|http[s]?://|www\\.)","");
-                if (!url.endsWith("/")) {
-                    url = url + "/";
+                if (url.endsWith("/")) {
+                    url = url.substring(0, url.length() - 1);
                 }
 
                 DefaultTreeModel model = (DefaultTreeModel) tree.getModel();
@@ -112,10 +129,14 @@ public class DirDigger {
                 DiggerWorker diggerWorker = new DiggerWorker.DiggerWorkerBuilder(url, 0)
                         .fileExtensions(fileExtensions)
                         .threadPool(executorService)
+                        .httpClient(httpAsyncClient)
+                        .dirList(entryList)
                         .directoryList(dirsAndFilesList)
                         .maxDepth(depthSlider.getValue())
+                        .followRedirects(followRedirect.isSelected())
                         .tree(tree)
                         .progressBar(progressBar)
+                        .logger(logging)
                         .build();
                 diggerWorker.addPropertyChangeListener(evt -> {
                     if ("progress".equals(evt.getPropertyName())) {
@@ -158,7 +179,7 @@ public class DirDigger {
                     }
                 };
 
-        executorService = new ThreadPoolExecutor(MAX_WORKER_THREADS, MAX_WORKER_THREADS,
+        executorService = new ThreadPoolExecutor(threadNumSlider.getValue(), threadNumSlider.getValue(),
                 10L, TimeUnit.MINUTES,
                 new LinkedBlockingQueue<>(),
                 threadFactory);
@@ -186,6 +207,8 @@ public class DirDigger {
         initSeparators();
 
         initTree();
+
+        loadTestDirFile();
 
         positionUIComponents();
     }
@@ -279,13 +302,22 @@ public class DirDigger {
                 labelsTHSlider.put(i, new JLabel(""));
         }
         threadNumSlider.setLabelTable(labelsTHSlider);
+
+        followRedirect = new JCheckBox("Follow redirects");
     }
 
     private void initStartAndProgressSection() {
         errorMessage = new JLabel();
         errorMessage.setVisible(false);
 
-        startDigging = new JButton("Start Digging");
+//        startDigging = new JButton("Start Digging");
+        startDigging = new JToggleButton("Start Digging");
+        startDigging.addActionListener(e -> {
+            if (startDigging.getModel().isSelected() && isValidToStart())
+                startDigging.setText("Stop Digging");
+            else if (isValidToStart())
+                startDigging.setText("Continue digging");
+        });
         startDigging.setMaximumSize(new Dimension(600, startDigging.getPreferredSize().height));
         startDigging.setMinimumSize(new Dimension(600, startDigging.getPreferredSize().height));
 
@@ -295,6 +327,10 @@ public class DirDigger {
         progressBar.setValue(0);
         progressBar.setStringPainted(true);
         progressBar.setVisible(false);
+    }
+
+    private boolean isValidToStart() {
+        return urlTextField.getText() != null && !urlTextField.getText().equals("") && dirsAndFilesList.getModel().getSize() > 0;
     }
 
     private void initLegendSection() {
@@ -313,11 +349,11 @@ public class DirDigger {
         BufferedImage iconClientError = null;
         BufferedImage iconServerError = null;
         try {
-            iconInfo = ImageIO.read((DirDigger.class.getResource("images/info-circle.png")));
-            iconSuccess = ImageIO.read((DirDigger.class.getResource("images/success-circle.png")));
-            iconRedirect = ImageIO.read((DirDigger.class.getResource("images/redirect-circle.png")));
-            iconClientError = ImageIO.read((DirDigger.class.getResource("images/client_error-circle.png")));
-            iconServerError = ImageIO.read((DirDigger.class.getResource("images/server_error-circle.png")));
+            iconInfo = ImageIO.read((DirDigger.class.getResource("../images/info-circle.png")));
+            iconSuccess = ImageIO.read((DirDigger.class.getResource("../images/success-circle.png")));
+            iconRedirect = ImageIO.read((DirDigger.class.getResource("../images/redirect-circle.png")));
+            iconClientError = ImageIO.read((DirDigger.class.getResource("../images/client_error-circle.png")));
+            iconServerError = ImageIO.read((DirDigger.class.getResource("../images/server_error-circle.png")));
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -422,6 +458,8 @@ public class DirDigger {
                                         .addComponent(threadNumSlider)
                                 )
 
+                                .addComponent(followRedirect)
+
                                 .addComponent(thirdHorizontalSeparator)
 
                                 .addComponent(errorMessage)
@@ -499,6 +537,8 @@ public class DirDigger {
                                         .addComponent(threadNumSlider)
                                 )
 
+                                .addComponent(followRedirect)
+
                                 .addComponent(thirdHorizontalSeparator)
 
                                 .addComponent(errorMessage)
@@ -534,5 +574,70 @@ public class DirDigger {
 
                         .addComponent(tree)
         );
+    }
+
+    private void initHttpClient() throws IOReactorException {
+        // Create I/O reactor configuration
+        IOReactorConfig ioReactorConfig = IOReactorConfig.custom()
+                .setIoThreadCount(Runtime.getRuntime().availableProcessors())
+                // Connection Timeout – the time to establish the connection with the remote host
+                .setConnectTimeout(30000)
+                // Socket Timeout – the time waiting for data – after establishing the connection; maximum time of inactivity between two data packets
+                .setSoTimeout(30000)
+                .build();
+
+        // Create a custom I/O reactort
+        ConnectingIOReactor ioReactor = new DefaultConnectingIOReactor(ioReactorConfig);
+
+        // Create a connection manager with custom configuration.
+        PoolingNHttpClientConnectionManager connManager = new PoolingNHttpClientConnectionManager(ioReactor);
+
+        // Configure total max or per route limits for persistent connections
+        // that can be kept in the pool or leased by the connection manager.
+        connManager.setMaxTotal(100);
+        connManager.setDefaultMaxPerRoute(10);
+//        connManager.setMaxPerRoute(new HttpRoute(new HttpHost("somehost", 80)), 20);
+
+        // Use custom cookie store if necessary.
+//        CookieStore cookieStore = new BasicCookieStore();
+//        // Use custom credentials provider if necessary.
+//        CredentialsProvider credentialsProvider = new BasicCredentialsProvider();
+//        credentialsProvider.setCredentials(new AuthScope("localhost", 8889), new UsernamePasswordCredentials("squid", "nopassword"));
+//        // Create global request configuration
+        org.apache.http.client.config.RequestConfig defaultRequestConfig = org.apache.http.client.config.RequestConfig.custom()
+         	            .setCookieSpec(CookieSpecs.STANDARD)
+//         	            .setExpectContinueEnabled(true)
+//         	            .setTargetPreferredAuthSchemes(Arrays.asList(AuthSchemes.NTLM, AuthSchemes.DIGEST))
+//         	            .setProxyPreferredAuthSchemes(Arrays.asList(AuthSchemes.BASIC))
+         	            .build();
+
+        httpAsyncClient = HttpAsyncClients.custom()
+                        .setConnectionManager(connManager)
+//         	            .setDefaultCookieStore(cookieStore)
+//         	            .setDefaultCredentialsProvider(credentialsProvider)
+         	            .setProxy(/*new HttpHost("localhost", 8889)*/null)
+         	            .setDefaultRequestConfig(defaultRequestConfig)
+                        .setRedirectStrategy(new DebugRedirectStrategy(tree))
+         	            .build();
+    }
+
+    private void loadTestDirFile() {
+        File file = new File("/home/marko/Desktop/top_1000_dirs.txt");
+
+        DefaultListModel<String> listModel = (DefaultListModel<String>) dirsAndFilesList.getModel();
+            try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+                String line = reader.readLine();
+                while (line != null) {
+                    if (!line.startsWith("#") && !line.equals("")) {
+                        String entry = line.trim();
+                        listModel.addElement(entry);
+                        entryList.add(entry);
+                    }
+                    line = reader.readLine();
+                }
+            } catch (IOException exception) {
+                exception.printStackTrace();
+            }
+        dirsAndFilesList.setModel(listModel);
     }
 }
