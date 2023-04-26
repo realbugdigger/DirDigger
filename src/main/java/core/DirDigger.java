@@ -8,7 +8,7 @@ import org.apache.http.impl.nio.reactor.DefaultConnectingIOReactor;
 import org.apache.http.impl.nio.reactor.IOReactorConfig;
 import org.apache.http.nio.reactor.ConnectingIOReactor;
 import org.apache.http.nio.reactor.IOReactorException;
-import utils.DebugRedirectStrategy;
+import utils.CustomRedirectStrategy;
 import utils.Globals;
 import utils.UrlUtils;
 
@@ -58,6 +58,7 @@ public class DirDigger {
     private JLabel threadNumSliderLabel;
     private JSlider threadNumSlider;
     private JCheckBox followRedirect;
+    private JCheckBox seeRedirectTree;
 
     private JLabel legendHeader;
     private JLabel legendCircleInfo;
@@ -72,6 +73,8 @@ public class DirDigger {
     private JLabel legendServerError;
 
     private JTree tree;
+    private JTree redirectTree;
+    private WrappedJTree wrappedTree = new WrappedJTree();
     private JScrollPane treeScrollPane;
 
     private JSeparator verticalSeparator;
@@ -84,8 +87,10 @@ public class DirDigger {
 
     private org.apache.http.impl.nio.client.CloseableHttpAsyncClient httpAsyncClient;
 
+    private DiggerWorker diggerWorker;
+
     // HashSet or ArrayList ????
-    private List<String> entryList = new ArrayList<>();
+    private final List<String> entryList = new ArrayList<>();
 
     public DirDigger(Logging logging) {
 
@@ -96,10 +101,22 @@ public class DirDigger {
         BrowseFileListener browseFileListener = new BrowseFileListener(dirsAndFilesList, entryList);
         browseFiles.addActionListener(browseFileListener);
 
+        seeRedirectTree.addActionListener(e -> {
+            if (seeRedirectTree.isSelected()) {
+                tree.setVisible(false);
+                redirectTree.setVisible(true);
+            } else {
+                tree.setVisible(true);
+                redirectTree.setVisible(false);
+            }
+        });
+
         startDigging.addActionListener(e -> {
             if (isValidToStart()) {
                 try {
-                    initHttpClient();
+                    String scheme = UrlUtils.getScheme(urlTextField.getText());
+                    String hostname = UrlUtils.getHostname(urlTextField.getText());
+                    initHttpClient(scheme, hostname);
                 } catch (Exception ex) {
                     System.out.println(ex.getMessage());
                 }
@@ -108,6 +125,7 @@ public class DirDigger {
                 errorMessage.setVisible(false);
                 progressBar.setVisible(true);
                 tree.setVisible(true);
+                seeRedirectTree.setVisible(followRedirect.isSelected());
 
                 List<String> fileExtensions = null;
                 if (fileExtensionsTextField.getText() != null && !fileExtensionsTextField.getText().equals("")) {
@@ -126,7 +144,8 @@ public class DirDigger {
                 model.setRoot(child);
                 tree.scrollPathToVisible(new TreePath(child.getPath()));
 
-                DiggerWorker diggerWorker = new DiggerWorker.DiggerWorkerBuilder(url, 0)
+                // trim spaces around entered url
+                diggerWorker = new DiggerWorker.DiggerWorkerBuilder(url, 0)
                         .fileExtensions(fileExtensions)
                         .threadPool(executorService)
                         .httpClient(httpAsyncClient)
@@ -134,7 +153,7 @@ public class DirDigger {
                         .directoryList(dirsAndFilesList)
                         .maxDepth(depthSlider.getValue())
                         .followRedirects(followRedirect.isSelected())
-                        .tree(tree)
+                        .tree(wrappedTree)
                         .progressBar(progressBar)
                         .logger(logging)
                         .build();
@@ -304,6 +323,8 @@ public class DirDigger {
         threadNumSlider.setLabelTable(labelsTHSlider);
 
         followRedirect = new JCheckBox("Follow redirects");
+        seeRedirectTree = new JCheckBox("See redirect tree");
+        seeRedirectTree.setVisible(false);
     }
 
     private void initStartAndProgressSection() {
@@ -407,7 +428,19 @@ public class DirDigger {
         CustomIconRenderer customIconRenderer = new CustomIconRenderer();
         tree.setCellRenderer(customIconRenderer);
 
+        wrappedTree.setTree(tree);
+
         treeScrollPane = new JScrollPane(tree);
+
+        redirectTree = new JTree();
+        redirectTree.setVisible(false);
+        redirectTree.setRootVisible(false);
+        DefaultTreeModel redirectModel = (DefaultTreeModel) redirectTree.getModel();
+        DefaultMutableTreeNode redirectRoot = new DefaultMutableTreeNode(new DiggerNode(null, "", UrlUtils.HttpResponseCodeStatus.REDIRECTION));
+        redirectModel.setRoot(redirectRoot);
+        redirectTree.setCellRenderer(customIconRenderer);
+
+        wrappedTree.setRedirectTree(redirectTree);
     }
 
     private void positionUIComponents() {
@@ -459,6 +492,7 @@ public class DirDigger {
                                 )
 
                                 .addComponent(followRedirect)
+                                .addComponent(seeRedirectTree)
 
                                 .addComponent(thirdHorizontalSeparator)
 
@@ -496,6 +530,7 @@ public class DirDigger {
                         .addComponent(verticalSeparator)
 
                         .addComponent(tree)
+                        .addComponent(redirectTree)
         );
 
         layout.setVerticalGroup(
@@ -538,6 +573,7 @@ public class DirDigger {
                                 )
 
                                 .addComponent(followRedirect)
+                                .addComponent(seeRedirectTree)
 
                                 .addComponent(thirdHorizontalSeparator)
 
@@ -573,10 +609,11 @@ public class DirDigger {
                         .addComponent(verticalSeparator)
 
                         .addComponent(tree)
+                        .addComponent(redirectTree)
         );
     }
 
-    private void initHttpClient() throws IOReactorException {
+    private void initHttpClient(String scheme, String hostname) throws IOReactorException {
         // Create I/O reactor configuration
         IOReactorConfig ioReactorConfig = IOReactorConfig.custom()
                 .setIoThreadCount(Runtime.getRuntime().availableProcessors())
@@ -617,7 +654,7 @@ public class DirDigger {
 //         	            .setDefaultCredentialsProvider(credentialsProvider)
          	            .setProxy(/*new HttpHost("localhost", 8889)*/null)
          	            .setDefaultRequestConfig(defaultRequestConfig)
-                        .setRedirectStrategy(new DebugRedirectStrategy(tree))
+                        .setRedirectStrategy(new CustomRedirectStrategy(scheme, hostname, wrappedTree))
          	            .build();
     }
 

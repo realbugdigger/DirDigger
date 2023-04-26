@@ -14,9 +14,19 @@ public final class JTreeUtils {
 
     public static synchronized void addNode(DiggerNode node, JTree tree) {
         DefaultTreeModel model = (DefaultTreeModel) tree.getModel();
+        DefaultMutableTreeNode root = (DefaultMutableTreeNode) model.getRoot();
         DefaultMutableTreeNode parent = node.getParent();
-        parent.add(new DefaultMutableTreeNode(node));
-        model.reload(parent);
+
+        if (parent != null) {
+            System.out.println("Adding " + node.getUrl() + " with parent ==> " + ((DiggerNode) parent.getUserObject()).getUrl());
+            parent.add(new DefaultMutableTreeNode(node));
+            model.reload(parent);
+        }
+        else {
+            System.out.println("Adding " + node.getUrl() + " with parent ==> " + ((DiggerNode) root.getUserObject()).getUrl());
+            root.add(new DefaultMutableTreeNode(node));
+            model.reload(root);
+        }
     }
 
     public static synchronized DefaultMutableTreeNode findParentNode(String newUrl, DefaultMutableTreeNode root) {
@@ -38,6 +48,75 @@ public final class JTreeUtils {
         }
 
         return parent;
+    }
+
+    public static synchronized boolean contains(String url, DefaultMutableTreeNode root) {
+        DefaultMutableTreeNode parent = root;
+        DiggerNode parentNode = (DiggerNode) parent.getUserObject();
+        if (parentNode.getUrl().equals(url))
+            return true;
+
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            DefaultMutableTreeNode child = (DefaultMutableTreeNode) parent.getChildAt(i);
+            DiggerNode childNode = (DiggerNode) child.getUserObject();
+            if (childNode.getUrl().equals(url)) {
+                return true;
+            }
+            else {
+                if (contains(url, child))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    public static synchronized boolean notContained(String url, DefaultMutableTreeNode root) {
+        return !contains(url, root);
+    }
+
+    public static synchronized DefaultMutableTreeNode findRedirectParentNode(String redirectedUrl, DefaultMutableTreeNode root) {
+        DefaultMutableTreeNode parent = root;
+        DiggerNode parentNode = (DiggerNode) parent.getUserObject();
+        if (parentNode.getUrl().equals(redirectedUrl))
+            return parent.getParent() != null ? (DefaultMutableTreeNode) parent.getParent() : null;
+
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            DefaultMutableTreeNode child = (DefaultMutableTreeNode) parent.getChildAt(i);
+            DiggerNode childNode = (DiggerNode) child.getUserObject();
+            if (childNode.getUrl().equals(redirectedUrl)) {
+                return parent;
+            }
+            else {
+                DefaultMutableTreeNode recursiveFind = findRedirectParentNode(redirectedUrl, child);
+                if (recursiveFind != null)
+                    return (DefaultMutableTreeNode) recursiveFind.getParent();
+            }
+        }
+
+        return null;
+    }
+
+    public static synchronized DefaultMutableTreeNode getNode(String url, DefaultMutableTreeNode root) {
+        DefaultMutableTreeNode parent = root;
+        DiggerNode parentNode = (DiggerNode) parent.getUserObject();
+        if (parentNode.getUrl().equals(url))
+            return parent;
+
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            DefaultMutableTreeNode child = (DefaultMutableTreeNode) parent.getChildAt(i);
+            DiggerNode childNode = (DiggerNode) child.getUserObject();
+            if (childNode.getUrl().equals(url)) {
+                return child;
+            }
+            else {
+                DefaultMutableTreeNode recursiveFind = getNode(url, child);
+                if (recursiveFind != null)
+                    return child;
+            }
+        }
+
+        return null;
     }
 
     private static synchronized boolean shouldLookIntoChild(String newUrl, String childNodeUrl) {

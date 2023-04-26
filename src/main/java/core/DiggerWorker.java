@@ -12,20 +12,11 @@ import org.apache.hc.core5.http.message.StatusLine;
 import org.apache.hc.core5.io.CloseMode;
 import org.apache.hc.core5.reactor.IOReactorConfig;
 import org.apache.hc.core5.util.Timeout;
-import org.apache.http.client.config.CookieSpecs;
-import org.apache.http.impl.nio.conn.PoolingNHttpClientConnectionManager;
-import org.apache.http.impl.nio.reactor.DefaultConnectingIOReactor;
-import org.apache.http.message.BasicHttpResponse;
-import org.apache.http.nio.reactor.ConnectingIOReactor;
-import org.apache.http.nio.reactor.IOReactorException;
-import utils.DebugRedirectStrategy;
 import utils.JTreeUtils;
 import utils.UrlUtils;
 
 import javax.swing.*;
 import javax.swing.tree.DefaultMutableTreeNode;
-import javax.swing.tree.DefaultTreeModel;
-import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.*;
 
@@ -51,7 +42,7 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
     private boolean followRedirects;
     private final JList<String> dirsAndFilesListGui;
     private final ListModel<String> dirListGui;
-    private JTree tree;
+    private WrappedJTree tree;
     private JProgressBar progressBar;
     private DefaultMutableTreeNode root;
 
@@ -70,7 +61,7 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
         this.logging = builder.logging;
 
         this.dirListGui = this.dirsAndFilesListGui.getModel();
-        this.root = (DefaultMutableTreeNode) tree.getModel().getRoot();
+        this.root = (DefaultMutableTreeNode) tree.getTree().getModel().getRoot();
         this.partitionedDirList = ListUtils.partition(dirList, 25);
 
         this.scheme = UrlUtils.getScheme(url);
@@ -81,8 +72,10 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
     @Override
     protected String doInBackground() throws Exception {
 
-//        dig(url, currentDepth);
-        digAsync();
+//        if (followRedirects)
+            digAsync();
+//        else
+//            digPipelined();
 
         return "Successfully finished";
     }
@@ -111,6 +104,7 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
 
                                 DefaultMutableTreeNode parent = JTreeUtils.findParentNode(potentialHit, root);
                                 DiggerNode node = new DiggerNode(parent, potentialHit, UrlUtils.getResponseStatus(response.getStatusLine().getStatusCode()));
+                                tree.addNode(node);
                                 publish(node);
 
                                 DiggerWorker diggerWorker = new DiggerWorkerBuilder(potentialHit, currentDepth + 1)
@@ -149,59 +143,8 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
         }
     }
 
-    public void dig(String url, int depth) throws Exception {
+    public void digPipelined() throws Exception {
 
-        for (List<String> partition : partitionedDirList) {
-
-            final IOReactorConfig ioReactorConfig = IOReactorConfig.custom()
-                    .setSoTimeout(Timeout.ofSeconds(5))
-                    .build();
-
-            final CloseableHttpAsyncClient client = HttpAsyncClients.custom()
-                    .setH2Config(null)
-                    .setHttp1Config(Http1Config.DEFAULT)
-                    .setIOReactorConfig(ioReactorConfig)
-                    .build();
-
-            client.start();
-
-            final HttpHost target = new HttpHost(scheme, hostname);
-
-            for (final String requestUri: partition) {
-                final SimpleHttpRequest request = SimpleRequestBuilder.get()
-                        .setHttpHost(target)
-                        .setPath(requestUri)
-                        .build();
-
-                System.out.println("Executing request " + request);
-                final Future<SimpleHttpResponse> future = client.execute(
-                        SimpleRequestProducer.create(request),
-                        SimpleResponseConsumer.create(),
-                        new FutureCallback<SimpleHttpResponse>() {
-
-                            @Override
-                            public void completed(final SimpleHttpResponse response) {
-                                System.out.println(request + " -> " + new StatusLine(response));
-//                                System.out.println(response.getBody());
-                            }
-
-                            @Override
-                            public void failed(final Exception ex) {
-                                System.out.println(request + " -> " + ex);
-                            }
-
-                            @Override
-                            public void cancelled() {
-                                System.out.println(request + " cancelled");
-                            }
-
-                        });
-                future.get();
-            }
-
-            System.out.println("Shutting down");
-            client.close(CloseMode.GRACEFUL);
-        }
     }
 
 //    public void dig(String url, int depth) throws Exception {
@@ -339,7 +282,7 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
     @Override
     protected void process(List<DiggerNode> nodes) {
         for (DiggerNode node : nodes) {
-            JTreeUtils.addNode(node, tree);
+//            JTreeUtils.addNode(node, tree);
             progressBar.setMaximum(progressBar.getMaximum() + 300);
         }
     }
@@ -349,53 +292,6 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
         progressBar.setVisible(false);
         dirsAndFilesListGui.setModel(new DefaultListModel<>());
     }
-
-//    private void addNode(DiggerNode node) {
-//        DefaultTreeModel model = (DefaultTreeModel) tree.getModel();
-//        DefaultMutableTreeNode parent = node.getParent();
-//        parent.add(new DefaultMutableTreeNode(node));
-//        model.reload(parent);
-//    }
-//
-//    private DefaultMutableTreeNode findParentNode(String newUrl, DefaultMutableTreeNode root) {
-//        DefaultMutableTreeNode parent = root;
-//
-//        for (int i = 0; i < root.getChildCount(); i++) {
-//            DefaultMutableTreeNode childNode = (DefaultMutableTreeNode) root.getChildAt(i);
-//            DiggerNode childDiggerNode = (DiggerNode) childNode.getUserObject();
-//            String childNodeUrl = childDiggerNode.getUrl();
-//
-//            if(shouldLookIntoChild(newUrl, childNodeUrl)) {
-//                if (shouldAddInThisChild(newUrl, childNodeUrl)) {
-//                    parent = childNode;
-//                    break;
-//                } else {
-//                    parent = findParentNode(newUrl, childNode);
-//                }
-//            }
-//        }
-//
-//        return parent;
-//    }
-//
-//    private boolean shouldLookIntoChild(String newUrl, String childNodeUrl) {
-//        return newUrl.contains(childNodeUrl);
-//    }
-//
-//    private boolean shouldAddInThisChild(String newUrl, String childNodeUrl) {
-//        List<String> newUrlDirs = UrlUtils.getDirectoriesOfUrl(newUrl);
-//        List<String> childNodeUrlDirs = UrlUtils.getDirectoriesOfUrl(childNodeUrl);
-//
-//        if (newUrlDirs.size() != childNodeUrlDirs.size() + 1)
-//            return false;
-//
-//        newUrlDirs.remove(newUrlDirs.size() - 1);
-//        for (int i = 0; i < newUrlDirs.size(); i++) {
-//            if (!newUrlDirs.get(i).equals(childNodeUrlDirs.get(i)))
-//                return false;
-//        }
-//        return true;
-//    }
 
     public static class DiggerWorkerBuilder {
 
@@ -412,7 +308,7 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
         private int maxDepth;
         private boolean followRedirects;
         private JList<String> dirsAndFilesListGui;
-        private JTree tree;
+        private WrappedJTree tree;
         private JProgressBar progressBar;
 
         public DiggerWorkerBuilder(String url, int currentDepth) {
@@ -455,7 +351,7 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
             return this;
         }
 
-        public DiggerWorkerBuilder tree(JTree tree) {
+        public DiggerWorkerBuilder tree(WrappedJTree tree) {
             this.tree = tree;
             return this;
         }
