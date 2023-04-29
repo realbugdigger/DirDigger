@@ -103,7 +103,7 @@ public final class JTreeUtils {
             else {
                 DefaultMutableTreeNode recursiveFind = getNode(url, child);
                 if (recursiveFind != null)
-                    return child;
+                    return recursiveFind;
             }
         }
 

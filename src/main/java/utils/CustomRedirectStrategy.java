@@ -108,9 +108,9 @@ public class CustomRedirectStrategy implements RedirectStrategy {
 
             DefaultMutableTreeNode node = JTreeUtils.getNode(redirectedUrl, treeRoot);
             DefaultMutableTreeNode parent = (DefaultMutableTreeNode) node.getParent();
-//            DiggerNode diggerNode = (DiggerNode) node.getUserObject();
-//            diggerNode.setUrl("removed");
-//            node.setUserObject(diggerNode);
+
+            System.out.println("   node " + node.getUserObject());
+            System.out.println("   parent " + parent.getUserObject());
             parent.remove(node);
 
             DefaultTreeModel model = (DefaultTreeModel) tree.getTree().getModel();

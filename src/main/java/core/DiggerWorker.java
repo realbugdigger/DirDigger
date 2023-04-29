@@ -135,9 +135,6 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
                                     }
                                 }
 
-//                                tree.addNode(node);
-//                                JTreeUtils.addNode(node, tree.getTree());
-
                                 publish(node);
 
                                 DiggerWorker diggerWorker = new DiggerWorkerBuilder(potentialHit, currentDepth + 1)
