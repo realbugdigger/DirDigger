@@ -134,17 +134,15 @@ public class DirDigger {
                     ));
                 }
 
-                String url = urlTextField.getText();
-                if (url.endsWith("/")) {
+                String url = urlTextField.getText().trim();
+                if (url.endsWith("/"))
                     url = url.substring(0, url.length() - 1);
-                }
 
                 DefaultTreeModel model = (DefaultTreeModel) tree.getModel();
                 DefaultMutableTreeNode child = new DefaultMutableTreeNode(new DiggerNode(null, url, UrlUtils.HttpResponseCodeStatus.SUCCESS));
                 model.setRoot(child);
                 tree.scrollPathToVisible(new TreePath(child.getPath()));
 
-                // trim spaces around entered url
                 diggerWorker = new DiggerWorker.DiggerWorkerBuilder(url, 0)
                         .fileExtensions(fileExtensions)
                         .threadPool(executorService)
@@ -436,7 +434,7 @@ public class DirDigger {
         redirectTree.setVisible(false);
         redirectTree.setRootVisible(false);
         DefaultTreeModel redirectModel = (DefaultTreeModel) redirectTree.getModel();
-        DefaultMutableTreeNode redirectRoot = new DefaultMutableTreeNode(new DiggerNode(null, "", UrlUtils.HttpResponseCodeStatus.REDIRECTION));
+        DefaultMutableTreeNode redirectRoot = new DefaultMutableTreeNode(new DiggerNode(null, "redirect tree root", UrlUtils.HttpResponseCodeStatus.REDIRECTION));
         redirectModel.setRoot(redirectRoot);
         redirectTree.setCellRenderer(customIconRenderer);
 

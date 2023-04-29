@@ -52,4 +52,15 @@ public final class UrlUtils {
             return 80;
         }
     }
+
+    /**
+     * http://example.org/blog is equal to http://example.org/blog/
+     */
+    public static boolean equalUrl(String url1, String url2) {
+        return url1.equals(url2) || url1.equals(url2 + "/") || url2.equals(url1 + "/");
+    }
+
+    public static boolean notEqualUrl(String url1, String url2) {
+        return !equalUrl(url1, url2);
+    }
 }

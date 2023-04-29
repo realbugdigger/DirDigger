@@ -14,19 +14,10 @@ public final class JTreeUtils {
 
     public static synchronized void addNode(DiggerNode node, JTree tree) {
         DefaultTreeModel model = (DefaultTreeModel) tree.getModel();
-        DefaultMutableTreeNode root = (DefaultMutableTreeNode) model.getRoot();
         DefaultMutableTreeNode parent = node.getParent();
 
-        if (parent != null) {
-            System.out.println("Adding " + node.getUrl() + " with parent ==> " + ((DiggerNode) parent.getUserObject()).getUrl());
-            parent.add(new DefaultMutableTreeNode(node));
-            model.reload(parent);
-        }
-        else {
-            System.out.println("Adding " + node.getUrl() + " with parent ==> " + ((DiggerNode) root.getUserObject()).getUrl());
-            root.add(new DefaultMutableTreeNode(node));
-            model.reload(root);
-        }
+        parent.add(new DefaultMutableTreeNode(node));
+        model.reload(parent);
     }
 
     public static synchronized DefaultMutableTreeNode findParentNode(String newUrl, DefaultMutableTreeNode root) {
@@ -79,7 +70,7 @@ public final class JTreeUtils {
         DefaultMutableTreeNode parent = root;
         DiggerNode parentNode = (DiggerNode) parent.getUserObject();
         if (parentNode.getUrl().equals(redirectedUrl))
-            return parent.getParent() != null ? (DefaultMutableTreeNode) parent.getParent() : null;
+            return parent.getParent() != null ? (DefaultMutableTreeNode) parent.getParent() : parent;
 
         for (int i = 0; i < parent.getChildCount(); i++) {
             DefaultMutableTreeNode child = (DefaultMutableTreeNode) parent.getChildAt(i);
@@ -94,7 +85,7 @@ public final class JTreeUtils {
             }
         }
 
-        return null;
+        return parent;
     }
 
     public static synchronized DefaultMutableTreeNode getNode(String url, DefaultMutableTreeNode root) {

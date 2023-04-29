@@ -70,37 +70,31 @@ public class CustomRedirectStrategy implements RedirectStrategy {
     }
 
     private synchronized void editTree(HttpRequest request, HttpResponse response, Header locationHeader) {
-        String originalRedirectedUrl = url + request.getRequestLine().getUri();
-        String originalRedirectedToUrl = locationHeader.getValue();
-
         String redirectedUrl = url + request.getRequestLine().getUri();
-        if (redirectedUrl.endsWith("/")) {
-            redirectedUrl = redirectedUrl.substring(0, redirectedUrl.length() - 1);
-        }
-
         String redirectedToUrl = locationHeader.getValue();
-        if (redirectedToUrl.endsWith("/")) {
-            redirectedToUrl = redirectedToUrl.substring(0, redirectedToUrl.length() - 1);
-        }
 
-        System.out.println("[REDIRECT] " + originalRedirectedUrl + " ===========> " + originalRedirectedToUrl);
+        System.out.println("[REDIRECT] " + redirectedUrl + " ===========> " + redirectedToUrl);
 
         DefaultMutableTreeNode treeRoot = (DefaultMutableTreeNode) tree.getTree().getModel().getRoot();
         DefaultMutableTreeNode redirectedTreeRoot = (DefaultMutableTreeNode) tree.getRedirectTree().getModel().getRoot();
 
-        if (JTreeUtils.notContained(redirectedUrl, redirectedTreeRoot) &&
-//                (JTreeUtils.notContained(redirectedToUrl, treeRoot)) &&
-                !originalRedirectedToUrl.equals(redirectedUrl + "/") && !originalRedirectedToUrl.equals(redirectedUrl)
-        ) {
-            System.out.println("Adding " + originalRedirectedUrl + " to redirected tree");
+        // if redirected url is not present in redirected tree and redirected url is not equal to destination url, add it
+        if (JTreeUtils.notContained(redirectedUrl, redirectedTreeRoot) && UrlUtils.notEqualUrl(redirectedUrl, redirectedToUrl)) {
+            System.out.println("Adding " + redirectedUrl + " to redirected tree");
 
             DefaultMutableTreeNode redirectedNodeParent = JTreeUtils.findRedirectParentNode(redirectedUrl, redirectedTreeRoot);
             DiggerNode redirectedNode = new DiggerNode(redirectedNodeParent, redirectedUrl, UrlUtils.getResponseStatus(response.getStatusLine().getStatusCode()));
             JTreeUtils.addNode(redirectedNode, tree.getRedirectTree());
         }
 
-        if (JTreeUtils.notContained(redirectedToUrl, redirectedTreeRoot) && JTreeUtils.notContained(redirectedToUrl, treeRoot)) {
-            System.out.println("Adding " + originalRedirectedToUrl + " to regular tree [from redirect]");
+        // this is done in case
+        String redirectedToUrlWithoutSlash = redirectedToUrl;
+        if (redirectedToUrl.endsWith("/"))
+            redirectedToUrlWithoutSlash = redirectedToUrlWithoutSlash.substring(0, redirectedToUrlWithoutSlash.length() - 1);
+
+        if (JTreeUtils.notContained(redirectedToUrl, redirectedTreeRoot) && JTreeUtils.notContained(redirectedToUrl, treeRoot) &&
+                    JTreeUtils.notContained(redirectedToUrlWithoutSlash, treeRoot) && JTreeUtils.notContained(redirectedToUrl + "/", treeRoot)) {
+            System.out.println("Adding " + redirectedToUrl + " to regular tree [from redirect]");
 
             DefaultMutableTreeNode redirectedToNodeParent = JTreeUtils.findParentNode(redirectedToUrl, treeRoot);
             DiggerNode redirectedToNode = new DiggerNode(redirectedToNodeParent, redirectedToUrl, UrlUtils.getResponseStatus(response.getStatusLine().getStatusCode()));
@@ -109,8 +103,8 @@ public class CustomRedirectStrategy implements RedirectStrategy {
 
         // if redirected url is present in regular tree, remove it
         //      additional check if e.g. http://example.com/blog => http://example.com/blog/ (don't remove)
-        if (JTreeUtils.contains(redirectedUrl, treeRoot) && !originalRedirectedToUrl.equals(originalRedirectedUrl + "/")) {
-            System.out.println("Removing " + originalRedirectedUrl + " from regular tree");
+        if (JTreeUtils.contains(redirectedUrl, treeRoot) && UrlUtils.notEqualUrl(redirectedUrl, redirectedToUrl)) {
+            System.out.println("Removing " + redirectedUrl + " from regular tree");
 
             DefaultMutableTreeNode node = JTreeUtils.getNode(redirectedUrl, treeRoot);
             DefaultMutableTreeNode parent = (DefaultMutableTreeNode) node.getParent();

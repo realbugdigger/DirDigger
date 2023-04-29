@@ -17,6 +17,7 @@ import utils.UrlUtils;
 
 import javax.swing.*;
 import javax.swing.tree.DefaultMutableTreeNode;
+import javax.swing.tree.DefaultTreeModel;
 import java.util.List;
 import java.util.concurrent.*;
 
@@ -45,6 +46,7 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
     private WrappedJTree tree;
     private JProgressBar progressBar;
     private DefaultMutableTreeNode root;
+    private DefaultMutableTreeNode redirectTreeRoot;
 
     private DiggerWorker(DiggerWorkerBuilder builder) {
         this.executorService = builder.executorService;
@@ -62,6 +64,7 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
 
         this.dirListGui = this.dirsAndFilesListGui.getModel();
         this.root = (DefaultMutableTreeNode) tree.getTree().getModel().getRoot();
+        this.redirectTreeRoot = (DefaultMutableTreeNode) tree.getRedirectTree().getModel().getRoot();
         this.partitionedDirList = ListUtils.partition(dirList, 25);
 
         this.scheme = UrlUtils.getScheme(url);
@@ -98,13 +101,43 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
                     Future<org.apache.http.HttpResponse> future = httpAsyncClient.execute(request, new org.apache.http.concurrent.FutureCallback<>() {
                         @Override
                         public void completed(org.apache.http.HttpResponse response) {
-                            System.out.println(potentialHit + " =========> " + response.getStatusLine().getStatusCode() + "\n"
-                                                    + "\t\t");
                             if (response.getStatusLine().getStatusCode() != 404 && currentDepth < maxDepth) {
+
+                                System.out.println(potentialHit + " {maybe was redirected, maybe not} =========> " + response.getStatusLine().getStatusCode() + "\n"
+                                        + "\t\t");
 
                                 DefaultMutableTreeNode parent = JTreeUtils.findParentNode(potentialHit, root);
                                 DiggerNode node = new DiggerNode(parent, potentialHit, UrlUtils.getResponseStatus(response.getStatusLine().getStatusCode()));
-                                tree.addNode(node);
+
+                                // if url is not present in redirected tree, add it to regular
+                                //              potentialHit (url) is present in redirect tree only if there was redirection
+                                if (JTreeUtils.notContained(potentialHit, redirectTreeRoot)) {
+
+                                    // if "url" or "url + /" already present in regular tree, update response status if needed
+                                    if (JTreeUtils.contains(potentialHit, root) || JTreeUtils.contains(potentialHit + "/", root)) {
+
+                                        DefaultMutableTreeNode treeNode = JTreeUtils.getNode(potentialHit, root);
+                                        if (treeNode == null)
+                                            treeNode = JTreeUtils.getNode(potentialHit + "/", root);
+
+                                        DiggerNode updatedDiggerNode = (DiggerNode) treeNode.getUserObject();
+
+                                        if (updatedDiggerNode.getResponseStatus() != UrlUtils.HttpResponseCodeStatus.SUCCESS && node.getResponseStatus() == UrlUtils.HttpResponseCodeStatus.SUCCESS) {
+                                            System.out.println("Updating " + potentialHit + " http response status from " + updatedDiggerNode.getResponseStatus() + " to " + node.getResponseStatus());
+
+                                            updatedDiggerNode.setResponseStatus(UrlUtils.HttpResponseCodeStatus.SUCCESS);
+                                            treeNode.setUserObject(updatedDiggerNode);
+                                            ((DefaultTreeModel) tree.getTree().getModel()).reload(treeNode);
+                                        }
+                                    } else {
+                                        System.out.println("Adding " + potentialHit + " to regular tree { looks like there wasn't any redirect }");
+                                        JTreeUtils.addNode(node, tree.getTree());
+                                    }
+                                }
+
+//                                tree.addNode(node);
+//                                JTreeUtils.addNode(node, tree.getTree());
+
                                 publish(node);
 
                                 DiggerWorker diggerWorker = new DiggerWorkerBuilder(potentialHit, currentDepth + 1)
