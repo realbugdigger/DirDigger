@@ -1,5 +1,6 @@
 package core;
 
+import burp.api.montoya.http.message.HttpRequestResponse;
 import utils.UrlUtils;
 
 import javax.swing.tree.DefaultMutableTreeNode;
@@ -9,6 +10,7 @@ public class DiggerNode {
     private DefaultMutableTreeNode parent;
     private String url;
     private UrlUtils.HttpResponseCodeStatus responseStatus;
+    private HttpRequestResponse httpRequestResponse;
 
     public DiggerNode(DefaultMutableTreeNode parent, String url, UrlUtils.HttpResponseCodeStatus responseStatus) {
         this.parent = parent;

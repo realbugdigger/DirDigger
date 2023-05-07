@@ -1,5 +1,7 @@
 package utils;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
@@ -42,7 +44,10 @@ public final class UrlUtils {
     }
 
     public static String getScheme(String url) {
-        return url.substring(0, url.indexOf(":"));
+        int colonIndex = url.indexOf(":");
+        if (colonIndex == -1)
+            return url;
+        return url.substring(0, colonIndex);
     }
 
     public static int getPort(String url) {
@@ -62,5 +67,15 @@ public final class UrlUtils {
 
     public static boolean notEqualUrl(String url1, String url2) {
         return !equalUrl(url1, url2);
+    }
+
+    // Probably not the most efficient way, but type safe
+    public static String getUrlWithoutParameters(String url) throws URISyntaxException {
+        URI uri = new URI(url);
+        return new URI(uri.getScheme(),
+                uri.getAuthority(),
+                uri.getPath(),
+                null, // Ignore the query part of the input url
+                uri.getFragment()).toString();
     }
 }

@@ -2,16 +2,8 @@ package core;
 
 import burp.api.montoya.logging.Logging;
 import org.apache.commons.collections4.ListUtils;
-import org.apache.hc.client5.http.async.methods.*;
-import org.apache.hc.client5.http.impl.async.CloseableHttpAsyncClient;
-import org.apache.hc.client5.http.impl.async.HttpAsyncClients;
-import org.apache.hc.core5.concurrent.FutureCallback;
-import org.apache.hc.core5.http.*;
-import org.apache.hc.core5.http.config.Http1Config;
-import org.apache.hc.core5.http.message.StatusLine;
-import org.apache.hc.core5.io.CloseMode;
-import org.apache.hc.core5.reactor.IOReactorConfig;
-import org.apache.hc.core5.util.Timeout;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import utils.JTreeUtils;
 import utils.UrlUtils;
 
@@ -23,13 +15,17 @@ import java.util.concurrent.*;
 
 public class DiggerWorker extends SwingWorker<String, DiggerNode> {
 
+    private static final Logger log = LoggerFactory.getLogger(DiggerWorker.class);
+
     private Logging logging;
 
-    private ExecutorService executorService;
+//    private ExecutorService executorService;
+    private PausableThreadPoolExecutor executorService;
 
     private org.apache.http.impl.nio.client.CloseableHttpAsyncClient httpAsyncClient;
 
     private List<String> dirList;
+    private List<Integer> watchedResponseCodes;
     private List<List<String>> partitionedDirList;
 
     private final String url;
@@ -48,8 +44,12 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
     private DefaultMutableTreeNode root;
     private DefaultMutableTreeNode redirectTreeRoot;
 
+    private boolean enabledTimeoutBetweenRequests = false; // enable when rate limiter detected
+    private int timeoutBetweenRequests = 3600; // time is in milliseconds
+
     private DiggerWorker(DiggerWorkerBuilder builder) {
-        this.executorService = builder.executorService;
+//        this.executorService = builder.executorService;
+        this.executorService = (PausableThreadPoolExecutor) builder.executorService;
         this.httpAsyncClient = builder.httpAsyncClient;
         this.url = builder.url;
         this.fileExtensions = builder.fileExtensions;
@@ -57,6 +57,7 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
         this.maxDepth = builder.maxDepth;
         this.followRedirects = builder.followRedirects;
         this.dirList = builder.dirList;
+        this.watchedResponseCodes = builder.watchedResponseCodes;
         this.dirsAndFilesListGui = builder.dirsAndFilesListGui;
         this.tree = builder.tree;
         this.progressBar = builder.progressBar;
@@ -94,68 +95,113 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
         try {
             httpAsyncClient.start();
             for (List<String> partition : partitionedDirList) {
-                for (String requestUri : partition) {
+                for (int i = 0; i < partition.size(); i++) {
+                    String requestUri = partition.get(i);
                     String potentialHit = scheme + "://" + hostname + "/" + requestUri;
                     org.apache.http.client.methods.HttpGet request = new org.apache.http.client.methods.HttpGet(potentialHit);
                     request.setConfig(requestConfig);
+
+//                    if (enabledTimeoutBetweenRequests) {
+//                        try {
+//                            Thread.sleep(timeoutBetweenRequests);
+//                        } catch (InterruptedException e) {
+//                            throw new RuntimeException(e);
+//                        }
+//                    }
                     Future<org.apache.http.HttpResponse> future = httpAsyncClient.execute(request, new org.apache.http.concurrent.FutureCallback<>() {
                         @Override
                         public void completed(org.apache.http.HttpResponse response) {
-                            if (response.getStatusLine().getStatusCode() != 404 && currentDepth < maxDepth) {
+                                int responseCode = response.getStatusLine().getStatusCode();
+                                // possible rate limiter in place?
+                                if (responseCode == 429 || responseCode == 503) {
+                                    log.warn("****** [RATE LIMITER DETECTED] ******");
+                                    try {
+                                        if (enabledTimeoutBetweenRequests)
+                                            timeoutBetweenRequests += 3000;
+                                        else
+                                            enabledTimeoutBetweenRequests = true;
 
-                                System.out.println(potentialHit + " {maybe was redirected, maybe not} =========> " + response.getStatusLine().getStatusCode() + "\n"
-                                        + "\t\t");
+                                        executorService.pause();
 
-                                DefaultMutableTreeNode parent = JTreeUtils.findParentNode(potentialHit, root);
-                                DiggerNode node = new DiggerNode(parent, potentialHit, UrlUtils.getResponseStatus(response.getStatusLine().getStatusCode()));
-
-                                // if url is not present in redirected tree, add it to regular
-                                //              potentialHit (url) is present in redirect tree only if there was redirection
-                                if (JTreeUtils.notContained(potentialHit, redirectTreeRoot)) {
-
-                                    // if "url" or "url + /" already present in regular tree, update response status if needed
-                                    if (JTreeUtils.contains(potentialHit, root) || JTreeUtils.contains(potentialHit + "/", root)) {
-
-                                        DefaultMutableTreeNode treeNode = JTreeUtils.getNode(potentialHit, root);
-                                        if (treeNode == null)
-                                            treeNode = JTreeUtils.getNode(potentialHit + "/", root);
-
-                                        DiggerNode updatedDiggerNode = (DiggerNode) treeNode.getUserObject();
-
-                                        if (updatedDiggerNode.getResponseStatus() != UrlUtils.HttpResponseCodeStatus.SUCCESS && node.getResponseStatus() == UrlUtils.HttpResponseCodeStatus.SUCCESS) {
-                                            System.out.println("Updating " + potentialHit + " http response status from " + updatedDiggerNode.getResponseStatus() + " to " + node.getResponseStatus());
-
-                                            updatedDiggerNode.setResponseStatus(UrlUtils.HttpResponseCodeStatus.SUCCESS);
-                                            treeNode.setUserObject(updatedDiggerNode);
-                                            ((DefaultTreeModel) tree.getTree().getModel()).reload(treeNode);
+                                        log.warn("Retry-After header value = {}", response.getFirstHeader("Retry-After"));
+                                        try {
+                                            if (response.getFirstHeader("Retry-After").getValue() != null) {
+                                                timeoutBetweenRequests = Integer.parseInt(response.getFirstHeader("Retry-After").getValue());
+                                            }
+                                        } catch (Exception e) {
+                                            log.error("Unexpected exception: {}", e.getMessage());
                                         }
-                                    } else {
-                                        System.out.println("Adding " + potentialHit + " to regular tree { looks like there wasn't any redirect }");
-                                        JTreeUtils.addNode(node, tree.getTree());
+
+                                        log.warn("Going to sleep for: {}", timeoutBetweenRequests);
+                                        Thread.sleep(timeoutBetweenRequests);
+                                        executorService.resume();
+                                    } catch (InterruptedException e) {
+                                        log.warn("Interrupted rate limiter sleep!!!\n{}", e.getMessage());
                                     }
                                 }
+                                else if (watchedResponseCodes.contains(responseCode) && currentDepth < maxDepth) {
+                                    log.debug("{} =========> {}",  potentialHit, responseCode);
 
-                                publish(node);
+                                    DefaultMutableTreeNode parent = JTreeUtils.findParentNode(potentialHit, root);
+                                    DiggerNode node = new DiggerNode(parent, potentialHit, UrlUtils.getResponseStatus(responseCode));
 
-                                DiggerWorker diggerWorker = new DiggerWorkerBuilder(potentialHit, currentDepth + 1)
-                                        .fileExtensions(fileExtensions)
-                                        .threadPool(executorService)
-                                        .httpClient(httpAsyncClient)
-                                        .dirList(dirList)
-                                        .directoryList(dirsAndFilesListGui)
-                                        .maxDepth(maxDepth)
-                                        .followRedirects(followRedirects)
-                                        .tree(tree)
-                                        .progressBar(progressBar)
-                                        .logger(logging)
-                                        .build();
-                                executorService.submit(diggerWorker);
-                            }
+                                    // if url is not present in redirected tree, add it to regular
+                                    //              potentialHit (url) is present in redirect tree only if there was redirection
+                                    if (JTreeUtils.notContained(potentialHit, redirectTreeRoot)) {
+
+                                        // if "url" or "url + /" already present in regular tree, update response status if needed
+                                        if (JTreeUtils.contains(potentialHit, root) || JTreeUtils.contains(potentialHit + "/", root)) {
+
+                                            DefaultMutableTreeNode treeNode = JTreeUtils.getNode(potentialHit, root);
+                                            if (treeNode == null)
+                                                treeNode = JTreeUtils.getNode(potentialHit + "/", root);
+
+                                            DiggerNode updatedDiggerNode = (DiggerNode) treeNode.getUserObject();
+
+                                            if (updatedDiggerNode.getResponseStatus() != UrlUtils.HttpResponseCodeStatus.SUCCESS && node.getResponseStatus() == UrlUtils.HttpResponseCodeStatus.SUCCESS) {
+                                                log.debug("Updating {} http response status from {} to {}", potentialHit, updatedDiggerNode.getResponseStatus(), node.getResponseStatus());
+
+                                                updatedDiggerNode.setResponseStatus(UrlUtils.HttpResponseCodeStatus.SUCCESS);
+                                                treeNode.setUserObject(updatedDiggerNode);
+                                            }
+                                        } else {
+                                            log.debug("Adding {} to regular tree (looks like there wasn't any redirect)", potentialHit);
+                                            JTreeUtils.addNode(node, tree.getTree());
+                                        }
+                                    }
+
+                                    publish(node);
+
+                                    DiggerWorker diggerWorker = new DiggerWorkerBuilder(potentialHit, currentDepth + 1)
+                                            .fileExtensions(fileExtensions)
+                                            .threadPool(executorService)
+                                            .httpClient(httpAsyncClient)
+                                            .dirList(dirList)
+                                            .responseCodes(watchedResponseCodes)
+                                            .directoryList(dirsAndFilesListGui)
+                                            .maxDepth(maxDepth)
+                                            .followRedirects(followRedirects)
+                                            .tree(tree)
+                                            .progressBar(progressBar)
+                                            .logger(logging)
+                                            .build();
+                                    executorService.submit(diggerWorker);
+                                }
                         }
 
                         @Override
                         public void failed(Exception ex) {
-
+                            log.warn("Exception from failed() http client: {}", ex.getMessage());
+                            log.warn("****** [POSSIBLE RATE LIMITER DETECTED] ******");
+                            try {
+                                executorService.pause();
+                                Thread.sleep(10000);
+                                executorService.resume();
+                            } catch (InterruptedException e) {
+                                log.warn("Interrupted rate limiter sleep!!!");
+                                throw new RuntimeException(e);
+//                                e.printStackTrace();
+                            }
                         }
 
                         @Override
@@ -164,10 +210,28 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
                         }
                     });
                     future.get();
+
+                    // setting refresh rate for better UX
+                    if (i % 20 == 0 || i == partition.size() - 1) {
+                        ((DefaultTreeModel) tree.getTree().getModel()).reload();
+                        ((DefaultTreeModel) tree.getRedirectTree().getModel()).reload();
+                        JTreeUtils.expandAllNodesOnReload(tree.getTree());
+                        JTreeUtils.expandAllNodesOnReload(tree.getRedirectTree());
+                    }
                 }
             }
         } catch (Exception e) {
-            throw new RuntimeException(e);
+            log.warn("Should this even happen???");
+            try {
+                executorService.pause();
+                Thread.sleep(10000);
+                executorService.resume();
+            } catch (InterruptedException ex) {
+                log.warn("Interrupted rate limiter sleep!!!");
+                throw new RuntimeException(ex);
+//                                e.printStackTrace();
+            }
+//            throw new RuntimeException(e);
         } finally {
             httpAsyncClient.close();
         }
@@ -332,6 +396,7 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
         private Logging logging;
 
         private List<String> dirList;
+        private List<Integer> watchedResponseCodes;
         private final String url;
         private List<String> fileExtensions;
         private final int currentDepth;
@@ -363,6 +428,11 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
 
         public DiggerWorkerBuilder dirList(List<String> dirList) {
             this.dirList = dirList;
+            return this;
+        }
+
+        public DiggerWorkerBuilder responseCodes(List<Integer> responseCodes) {
+            this.watchedResponseCodes = responseCodes;
             return this;
         }
 

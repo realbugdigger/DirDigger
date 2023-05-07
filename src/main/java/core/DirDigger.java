@@ -1,13 +1,18 @@
 package core;
 
 import burp.api.montoya.logging.Logging;
+import org.apache.http.HttpHost;
+import org.apache.http.HttpResponse;
 import org.apache.http.client.config.CookieSpecs;
+import org.apache.http.concurrent.FutureCallback;
 import org.apache.http.impl.nio.client.HttpAsyncClients;
 import org.apache.http.impl.nio.conn.PoolingNHttpClientConnectionManager;
 import org.apache.http.impl.nio.reactor.DefaultConnectingIOReactor;
 import org.apache.http.impl.nio.reactor.IOReactorConfig;
 import org.apache.http.nio.reactor.ConnectingIOReactor;
 import org.apache.http.nio.reactor.IOReactorException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import utils.CustomRedirectStrategy;
 import utils.Globals;
 import utils.UrlUtils;
@@ -24,11 +29,15 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.*;
 
 public class DirDigger {
+
+    private static final Logger log = LoggerFactory.getLogger(DiggerWorker.class);
 
     private final Logging logging;
 
@@ -57,6 +66,10 @@ public class DirDigger {
     private JSlider depthSlider;
     private JLabel threadNumSliderLabel;
     private JSlider threadNumSlider;
+    private JLabel proxyAndPortLabel;
+    private JTextField proxyAndPort;
+    private JLabel responseCodesLabel;
+    private JTextField responseCodes;
     private JCheckBox followRedirect;
     private JCheckBox seeRedirectTree;
 
@@ -73,9 +86,10 @@ public class DirDigger {
     private JLabel legendServerError;
 
     private JTree tree;
-    private JTree redirectTree;
-    private WrappedJTree wrappedTree = new WrappedJTree();
     private JScrollPane treeScrollPane;
+    private JTree redirectTree;
+    private JScrollPane redirectTreeScrollPane;
+    private WrappedJTree wrappedTree = new WrappedJTree();
 
     private JSeparator verticalSeparator;
     private JSeparator firstHorizontalSeparator;
@@ -103,11 +117,15 @@ public class DirDigger {
 
         seeRedirectTree.addActionListener(e -> {
             if (seeRedirectTree.isSelected()) {
+//                treeScrollPane.setVisible(false);
                 tree.setVisible(false);
-                redirectTree.setVisible(true);
+                redirectTreeScrollPane.setVisible(true);
+//                redirectTree.setVisible(true);
             } else {
+                redirectTreeScrollPane.setVisible(false);
+//                redirectTree.setVisible(false);
                 tree.setVisible(true);
-                redirectTree.setVisible(false);
+//                treeScrollPane.setVisible(true);
             }
         });
 
@@ -143,11 +161,18 @@ public class DirDigger {
                 model.setRoot(child);
                 tree.scrollPathToVisible(new TreePath(child.getPath()));
 
+                DefaultTreeModel redirectTreeModel = (DefaultTreeModel) redirectTree.getModel();
+                DefaultMutableTreeNode redirectRoot = (DefaultMutableTreeNode) redirectTreeModel.getRoot();
+                DefaultMutableTreeNode target = new DefaultMutableTreeNode(new DiggerNode(redirectRoot, url, UrlUtils.HttpResponseCodeStatus.SUCCESS));
+                redirectRoot.add(target);
+                redirectTree.scrollPathToVisible(new TreePath(child.getPath()));
+
                 diggerWorker = new DiggerWorker.DiggerWorkerBuilder(url, 0)
                         .fileExtensions(fileExtensions)
                         .threadPool(executorService)
                         .httpClient(httpAsyncClient)
                         .dirList(entryList)
+                        .responseCodes(loadWatchedResponseCodes())
                         .directoryList(dirsAndFilesList)
                         .maxDepth(depthSlider.getValue())
                         .followRedirects(followRedirect.isSelected())
@@ -196,10 +221,10 @@ public class DirDigger {
                     }
                 };
 
-        executorService = new ThreadPoolExecutor(threadNumSlider.getValue(), threadNumSlider.getValue(),
+        executorService = new PausableThreadPoolExecutor(threadNumSlider.getValue(), threadNumSlider.getValue(),
                 10L, TimeUnit.MINUTES,
-                new LinkedBlockingQueue<>(),
-                threadFactory);
+                new LinkedBlockingQueue<>(), threadFactory,
+                20);
     }
 
     public JPanel getFrame(){
@@ -320,6 +345,22 @@ public class DirDigger {
         }
         threadNumSlider.setLabelTable(labelsTHSlider);
 
+        proxyAndPortLabel = new JLabel("Proxy");
+
+        proxyAndPort = new JFormattedTextField();
+        proxyAndPort.setToolTipText("Enter proxy (if no keep empty)");
+        proxyAndPort.setMaximumSize(new Dimension(500, proxyAndPort.getPreferredSize().height));
+        proxyAndPort.setMinimumSize(new Dimension(500, proxyAndPort.getPreferredSize().height));
+
+//        responseCodesLabel = new JLabel("Filter response codes");
+        responseCodesLabel = new JLabel("Response codes");
+
+        responseCodes = new JFormattedTextField();
+        responseCodes.setText("200, 204, 301, 302, 307, 403");
+        responseCodes.setToolTipText("Enter response codes you wish to see");
+        responseCodes.setMaximumSize(new Dimension(450, responseCodes.getPreferredSize().height));
+        responseCodes.setMinimumSize(new Dimension(450, responseCodes.getPreferredSize().height));
+
         followRedirect = new JCheckBox("Follow redirects");
         seeRedirectTree = new JCheckBox("See redirect tree");
         seeRedirectTree.setVisible(false);
@@ -419,16 +460,17 @@ public class DirDigger {
     private void initTree() {
         tree = new JTree();
         tree.setVisible(false);
-//        tree.setRootVisible(false);
         DefaultTreeModel model = (DefaultTreeModel) tree.getModel();
         DefaultMutableTreeNode tempRoot = new DefaultMutableTreeNode(new DiggerNode(null, "", UrlUtils.HttpResponseCodeStatus.SUCCESS));
         model.setRoot(tempRoot);
         CustomIconRenderer customIconRenderer = new CustomIconRenderer();
         tree.setCellRenderer(customIconRenderer);
 
-        wrappedTree.setTree(tree);
-
         treeScrollPane = new JScrollPane(tree);
+        treeScrollPane.setMaximumSize(new Dimension(600, 500));
+        treeScrollPane.setMinimumSize(new Dimension(600, 500));
+
+        wrappedTree.setTree(tree);
 
         redirectTree = new JTree();
         redirectTree.setVisible(false);
@@ -437,6 +479,11 @@ public class DirDigger {
         DefaultMutableTreeNode redirectRoot = new DefaultMutableTreeNode(new DiggerNode(null, "redirect tree root", UrlUtils.HttpResponseCodeStatus.REDIRECTION));
         redirectModel.setRoot(redirectRoot);
         redirectTree.setCellRenderer(customIconRenderer);
+
+        redirectTreeScrollPane = new JScrollPane(redirectTree);
+        redirectTreeScrollPane.setVisible(false);
+        redirectTreeScrollPane.setMaximumSize(new Dimension(800, 700));
+        redirectTreeScrollPane.setMinimumSize(new Dimension(800, 700));
 
         wrappedTree.setRedirectTree(redirectTree);
     }
@@ -488,6 +535,14 @@ public class DirDigger {
                                         .addComponent(threadNumSliderLabel)
                                         .addComponent(threadNumSlider)
                                 )
+                                .addGroup(layout.createSequentialGroup()
+                                        .addComponent(proxyAndPortLabel)
+                                        .addComponent(proxyAndPort)
+                                )
+                                .addGroup(layout.createSequentialGroup()
+                                        .addComponent(responseCodesLabel)
+                                        .addComponent(responseCodes)
+                                )
 
                                 .addComponent(followRedirect)
                                 .addComponent(seeRedirectTree)
@@ -527,8 +582,10 @@ public class DirDigger {
 
                         .addComponent(verticalSeparator)
 
+//                        .addComponent(treeScrollPane)
                         .addComponent(tree)
-                        .addComponent(redirectTree)
+                        .addComponent(redirectTreeScrollPane)
+//                        .addComponent(redirectTree)
         );
 
         layout.setVerticalGroup(
@@ -569,6 +626,14 @@ public class DirDigger {
                                         .addComponent(threadNumSliderLabel)
                                         .addComponent(threadNumSlider)
                                 )
+                                .addGroup(layout.createParallelGroup()
+                                        .addComponent(proxyAndPortLabel)
+                                        .addComponent(proxyAndPort)
+                                )
+                                .addGroup(layout.createParallelGroup()
+                                        .addComponent(responseCodesLabel)
+                                        .addComponent(responseCodes)
+                                )
 
                                 .addComponent(followRedirect)
                                 .addComponent(seeRedirectTree)
@@ -606,8 +671,10 @@ public class DirDigger {
 
                         .addComponent(verticalSeparator)
 
+//                        .addComponent(treeScrollPane)
                         .addComponent(tree)
-                        .addComponent(redirectTree)
+                        .addComponent(redirectTreeScrollPane)
+//                        .addComponent(redirectTree)
         );
     }
 
@@ -630,7 +697,7 @@ public class DirDigger {
         // Configure total max or per route limits for persistent connections
         // that can be kept in the pool or leased by the connection manager.
         connManager.setMaxTotal(100);
-        connManager.setDefaultMaxPerRoute(10);
+        connManager.setDefaultMaxPerRoute(100);
 //        connManager.setMaxPerRoute(new HttpRoute(new HttpHost("somehost", 80)), 20);
 
         // Use custom cookie store if necessary.
@@ -650,10 +717,55 @@ public class DirDigger {
                         .setConnectionManager(connManager)
 //         	            .setDefaultCookieStore(cookieStore)
 //         	            .setDefaultCredentialsProvider(credentialsProvider)
-         	            .setProxy(/*new HttpHost("localhost", 8889)*/null)
+         	            .setProxy(loadProxy(proxyAndPort.getText()))
          	            .setDefaultRequestConfig(defaultRequestConfig)
                         .setRedirectStrategy(new CustomRedirectStrategy(scheme, hostname, wrappedTree))
          	            .build();
+    }
+
+    private HttpHost loadProxy(String proxyAndPort) {
+        String[] parts = proxyAndPort.split(":");
+
+        if (!proxyAndPort.isEmpty() && parts.length == 1) {
+            try {
+                InetAddress address = InetAddress.getByName(parts[0]);
+                return new HttpHost(address, 0);
+            } catch (UnknownHostException e) {
+                log.error("Unknown Host: {}", e.getMessage());
+                return null;
+            }
+        } else if (parts.length == 2) {
+            try {
+                InetAddress address = InetAddress.getByName(parts[0]);
+                int port = Integer.parseInt(parts[1]);
+                return new HttpHost(address, port);
+            } catch (UnknownHostException e) {
+                log.error("Unknown Host: {}", e.getMessage());
+                return null;
+            } catch (NumberFormatException e) {
+                log.error("Unknown Port: {}", e.getMessage());
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    private List<Integer> loadWatchedResponseCodes() {
+        List<String> inputs = List.of(responseCodes.getText()
+                                        .split(
+                                                responseCodes.getText().contains(",") ? "," : " "
+                                        ));
+        List<Integer> result = new ArrayList<>();
+        try {
+            for (String input: inputs) {
+                result.add(Integer.parseInt(input.trim()));
+            }
+        } catch (NumberFormatException e) {
+            log.warn("Error in response codes list: {}", e.getMessage());
+        }
+
+        return result.isEmpty() ? List.of(200, 204, 301, 302, 307, 403) : result;
     }
 
     private void loadTestDirFile() {
