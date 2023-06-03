@@ -1,3 +1,5 @@
+package core;
+
 import javax.swing.*;
 import javax.swing.filechooser.FileSystemView;
 import java.awt.event.ActionEvent;
@@ -6,13 +8,16 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
+import java.util.List;
 
 public class BrowseFileListener implements ActionListener {
 
-    private JList<String> dirsAndFilesList;
+    private final JList<String> dirsAndFilesList;
+    private final List<String> entryList;
 
-    public BrowseFileListener(JList<String> dirsAndFilesList) {
+    public BrowseFileListener(JList<String> dirsAndFilesList, List<String> entryList) {
         this.dirsAndFilesList = dirsAndFilesList;
+        this.entryList = entryList;
     }
 
     @Override
@@ -30,8 +35,11 @@ public class BrowseFileListener implements ActionListener {
                 try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
                     String line = reader.readLine();
                     while (line != null) {
-                        if (!line.startsWith("#"))
-                            listModel.addElement(line.trim());
+                        if (!line.startsWith("#") && !line.equals("")) {
+                            String entry = line.trim();
+                            listModel.addElement(entry);
+                            entryList.add(entry);
+                        }
                         line = reader.readLine();
                     }
                 } catch (IOException exception) {
