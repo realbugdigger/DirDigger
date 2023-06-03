@@ -1,7 +1,8 @@
 package core;
 
 import burp.api.montoya.logging.Logging;
-import org.apache.commons.collections4.ListUtils;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.http.HttpResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import utils.JTreeUtils;
@@ -13,20 +14,18 @@ import javax.swing.tree.DefaultTreeModel;
 import java.util.List;
 import java.util.concurrent.*;
 
-public class DiggerWorker extends SwingWorker<String, DiggerNode> {
+public class DiggerWorker extends SwingWorker<String, Boolean> {
 
     private static final Logger log = LoggerFactory.getLogger(DiggerWorker.class);
 
     private Logging logging;
 
-//    private ExecutorService executorService;
     private PausableThreadPoolExecutor executorService;
 
     private org.apache.http.impl.nio.client.CloseableHttpAsyncClient httpAsyncClient;
 
     private List<String> dirList;
     private List<Integer> watchedResponseCodes;
-    private List<List<String>> partitionedDirList;
 
     private final String url;
     private String scheme;
@@ -45,10 +44,9 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
     private DefaultMutableTreeNode redirectTreeRoot;
 
     private boolean enabledTimeoutBetweenRequests = false; // enable when rate limiter detected
-    private int timeoutBetweenRequests = 3600; // time is in milliseconds
+    private int timeoutBetweenRequests = 100; // time is in milliseconds
 
     private DiggerWorker(DiggerWorkerBuilder builder) {
-//        this.executorService = builder.executorService;
         this.executorService = (PausableThreadPoolExecutor) builder.executorService;
         this.httpAsyncClient = builder.httpAsyncClient;
         this.url = builder.url;
@@ -66,7 +64,6 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
         this.dirListGui = this.dirsAndFilesListGui.getModel();
         this.root = (DefaultMutableTreeNode) tree.getTree().getModel().getRoot();
         this.redirectTreeRoot = (DefaultMutableTreeNode) tree.getRedirectTree().getModel().getRoot();
-        this.partitionedDirList = ListUtils.partition(dirList, 25);
 
         this.scheme = UrlUtils.getScheme(url);
         this.hostname = UrlUtils.getHostname(url);
@@ -76,11 +73,7 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
     @Override
     protected String doInBackground() throws Exception {
 
-//        if (followRedirects)
-            digAsync();
-//        else
-//            digPipelined();
-
+        digAsync();
         return "Successfully finished";
     }
 
@@ -94,38 +87,149 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
                 .build();
         try {
             httpAsyncClient.start();
-            for (List<String> partition : partitionedDirList) {
-                for (int i = 0; i < partition.size(); i++) {
-                    String requestUri = partition.get(i);
-                    String potentialHit = scheme + "://" + hostname + "/" + requestUri;
-                    org.apache.http.client.methods.HttpGet request = new org.apache.http.client.methods.HttpGet(potentialHit);
-                    request.setConfig(requestConfig);
+            for (int i = 0; i < dirList.size(); i++) {
+                String requestUri = dirList.get(i);
+                String potentialHit = scheme + "://" + hostname + "/" + requestUri;
+                org.apache.http.client.methods.HttpGet request = new org.apache.http.client.methods.HttpGet(potentialHit);
+                request.setConfig(requestConfig);
 
-//                    if (enabledTimeoutBetweenRequests) {
-//                        try {
-//                            Thread.sleep(timeoutBetweenRequests);
-//                        } catch (InterruptedException e) {
-//                            throw new RuntimeException(e);
-//                        }
-//                    }
-                    Future<org.apache.http.HttpResponse> future = httpAsyncClient.execute(request, new org.apache.http.concurrent.FutureCallback<>() {
-                        @Override
-                        public void completed(org.apache.http.HttpResponse response) {
+                if (enabledTimeoutBetweenRequests) {
+                    try {
+                        Thread.sleep(timeoutBetweenRequests);
+                    } catch (InterruptedException e) {
+                        throw new RuntimeException(e);
+                    }
+                }
+                Future<org.apache.http.HttpResponse> future = httpAsyncClient.execute(request, new org.apache.http.concurrent.FutureCallback<>() {
+                    @Override
+                    public void completed(org.apache.http.HttpResponse response) {
+                        int responseCode = response.getStatusLine().getStatusCode();
+
+                        // possible rate limiter in place?
+                        if (responseCode == 429 || responseCode == 503) {
+                            log.warn("****** [RATE LIMITER DETECTED] ******");
+                            try {
+                                if (enabledTimeoutBetweenRequests)
+                                    timeoutBetweenRequests += 300;
+                                else
+                                    enabledTimeoutBetweenRequests = true;
+
+                                executorService.pause();
+
+                                try {
+                                    if (response.getFirstHeader("Retry-After").getValue() != null) {
+                                        log.warn("Retry-After header value = {}", response.getFirstHeader("Retry-After"));
+                                        timeoutBetweenRequests = Integer.parseInt(response.getFirstHeader("Retry-After").getValue());
+                                    }
+                                } catch (Exception e) {
+                                    // possibly there was a date inside header instead of num of milliseconds
+                                    log.error("[Retry-After] Unexpected exception: {}", e.getMessage());
+                                }
+
+                                log.warn("Going to sleep for: {}", timeoutBetweenRequests);
+                                Thread.sleep(timeoutBetweenRequests);
+                                executorService.resume();
+                            } catch (InterruptedException e) {
+                                log.warn("Interrupted rate limiter sleep!!!\n\t\t{}", e.getMessage());
+                            }
+                        } else if (watchedResponseCodes.contains(responseCode) && currentDepth < maxDepth) {
+                            log.debug("{} =========> {}", potentialHit, responseCode);
+
+                            DefaultMutableTreeNode parent = JTreeUtils.findParentNode(potentialHit, root);
+                            DiggerNode node = new DiggerNode(parent, potentialHit, UrlUtils.getResponseStatus(responseCode));
+
+                            // if url is not present in redirected tree, add it to regular
+                            //              potentialHit (url) is present in redirect tree only if there was redirection
+                            if (JTreeUtils.notContained(potentialHit, redirectTreeRoot)) {
+
+                                // if "url" or "url + /" already present in regular tree, update response status if needed
+                                if (JTreeUtils.contains(potentialHit, root) || JTreeUtils.contains(potentialHit + "/", root)) {
+
+                                    DefaultMutableTreeNode treeNode = JTreeUtils.getNode(potentialHit, root);
+                                    if (treeNode == null)
+                                        treeNode = JTreeUtils.getNode(potentialHit + "/", root);
+
+                                    DiggerNode updatedDiggerNode = (DiggerNode) treeNode.getUserObject();
+
+                                    if (updatedDiggerNode.getResponseStatus() != UrlUtils.HttpResponseCodeStatus.SUCCESS && node.getResponseStatus() == UrlUtils.HttpResponseCodeStatus.SUCCESS) {
+                                        log.debug("Updating {} http response status from {} to {}", potentialHit, updatedDiggerNode.getResponseStatus(), node.getResponseStatus());
+
+                                        updatedDiggerNode.setResponseStatus(UrlUtils.HttpResponseCodeStatus.SUCCESS);
+                                        treeNode.setUserObject(updatedDiggerNode);
+                                    }
+                                } else {
+                                    log.debug("Adding {} to regular tree (looks like there wasn't any redirect)", potentialHit);
+                                    JTreeUtils.addNode(node, tree.getTree());
+                                }
+                            }
+
+                            publish(true);
+
+                            if (followRedirects) {
+                                DiggerWorker diggerWorker = new DiggerWorkerBuilder(potentialHit, currentDepth + 1)
+                                        .fileExtensions(fileExtensions)
+                                        .threadPool(executorService)
+                                        .httpClient(httpAsyncClient)
+                                        .dirList(dirList)
+                                        .responseCodes(watchedResponseCodes)
+                                        .directoryList(dirsAndFilesListGui)
+                                        .maxDepth(maxDepth)
+                                        .followRedirects(followRedirects)
+                                        .tree(tree)
+                                        .progressBar(progressBar)
+                                        .logger(logging)
+                                        .build();
+                                executorService.submit(diggerWorker);
+                            }
+                        }
+                    }
+
+                    @Override
+                    public void failed(Exception ex) {
+                        log.warn("Exception from failed() http client: {}", ex.getMessage());
+                        log.warn("****** [POSSIBLE RATE LIMITER DETECTED] ******");
+                        try {
+                            executorService.pause();
+                            Thread.sleep(10000);
+                            executorService.resume();
+                        } catch (InterruptedException e) {
+                            log.warn("failed() Interrupted rate limiter sleep!!!\n\t\t{}", e.getMessage());
+                            throw new RuntimeException(e);
+                        }
+                    }
+
+                    @Override
+                    public void cancelled() {
+                        log.warn("Http request cancelled for some reason {}", potentialHit);
+                    }
+                });
+                future.get();
+
+                publish(false);
+
+                if (fileExtensions != null) {
+                    for (String fileExtension : fileExtensions) {
+                        String potentialWithExtension = potentialHit + "." + fileExtension;
+                        org.apache.http.client.methods.HttpGet extensionRequest = new org.apache.http.client.methods.HttpGet(potentialWithExtension);
+                        request.setConfig(requestConfig);
+                        Future<org.apache.http.HttpResponse> extensionFuture = httpAsyncClient.execute(extensionRequest, new org.apache.http.concurrent.FutureCallback<>() {
+                            @Override
+                            public void completed(HttpResponse response) {
                                 int responseCode = response.getStatusLine().getStatusCode();
+
                                 // possible rate limiter in place?
                                 if (responseCode == 429 || responseCode == 503) {
                                     log.warn("****** [RATE LIMITER DETECTED] ******");
                                     try {
                                         if (enabledTimeoutBetweenRequests)
-                                            timeoutBetweenRequests += 3000;
+                                            timeoutBetweenRequests += 300;
                                         else
                                             enabledTimeoutBetweenRequests = true;
 
                                         executorService.pause();
 
-                                        log.warn("Retry-After header value = {}", response.getFirstHeader("Retry-After"));
                                         try {
-                                            if (response.getFirstHeader("Retry-After").getValue() != null) {
+                                            if (response.getFirstHeader("Retry-After").getValue() != null || response.getFirstHeader("Retry-after").getValue() != null) {
                                                 timeoutBetweenRequests = Integer.parseInt(response.getFirstHeader("Retry-After").getValue());
                                             }
                                         } catch (Exception e) {
@@ -138,86 +242,69 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
                                     } catch (InterruptedException e) {
                                         log.warn("Interrupted rate limiter sleep!!!\n{}", e.getMessage());
                                     }
-                                }
-                                else if (watchedResponseCodes.contains(responseCode) && currentDepth < maxDepth) {
-                                    log.debug("{} =========> {}",  potentialHit, responseCode);
+                                } else if (watchedResponseCodes.contains(responseCode) && currentDepth < maxDepth) {
+                                    log.debug("{} =========> {}", potentialWithExtension, responseCode);
 
-                                    DefaultMutableTreeNode parent = JTreeUtils.findParentNode(potentialHit, root);
-                                    DiggerNode node = new DiggerNode(parent, potentialHit, UrlUtils.getResponseStatus(responseCode));
+                                    DefaultMutableTreeNode parent = JTreeUtils.findParentNode(potentialWithExtension, root);
+                                    DiggerNode node = new DiggerNode(parent, potentialWithExtension, UrlUtils.getResponseStatus(responseCode));
 
                                     // if url is not present in redirected tree, add it to regular
                                     //              potentialHit (url) is present in redirect tree only if there was redirection
-                                    if (JTreeUtils.notContained(potentialHit, redirectTreeRoot)) {
+                                    if (JTreeUtils.notContained(potentialWithExtension, redirectTreeRoot)) {
 
                                         // if "url" or "url + /" already present in regular tree, update response status if needed
-                                        if (JTreeUtils.contains(potentialHit, root) || JTreeUtils.contains(potentialHit + "/", root)) {
+                                        if (JTreeUtils.contains(potentialWithExtension, root) || JTreeUtils.contains(potentialWithExtension + "/", root)) {
 
-                                            DefaultMutableTreeNode treeNode = JTreeUtils.getNode(potentialHit, root);
+                                            DefaultMutableTreeNode treeNode = JTreeUtils.getNode(potentialWithExtension, root);
                                             if (treeNode == null)
-                                                treeNode = JTreeUtils.getNode(potentialHit + "/", root);
+                                                treeNode = JTreeUtils.getNode(potentialWithExtension + "/", root);
 
                                             DiggerNode updatedDiggerNode = (DiggerNode) treeNode.getUserObject();
 
                                             if (updatedDiggerNode.getResponseStatus() != UrlUtils.HttpResponseCodeStatus.SUCCESS && node.getResponseStatus() == UrlUtils.HttpResponseCodeStatus.SUCCESS) {
-                                                log.debug("Updating {} http response status from {} to {}", potentialHit, updatedDiggerNode.getResponseStatus(), node.getResponseStatus());
+                                                log.debug("Updating {} http response status from {} to {}", potentialWithExtension, updatedDiggerNode.getResponseStatus(), node.getResponseStatus());
 
                                                 updatedDiggerNode.setResponseStatus(UrlUtils.HttpResponseCodeStatus.SUCCESS);
                                                 treeNode.setUserObject(updatedDiggerNode);
                                             }
                                         } else {
-                                            log.debug("Adding {} to regular tree (looks like there wasn't any redirect)", potentialHit);
+                                            log.debug("Adding {} to regular tree (looks like there wasn't any redirect)", potentialWithExtension);
                                             JTreeUtils.addNode(node, tree.getTree());
                                         }
                                     }
-
-                                    publish(node);
-
-                                    DiggerWorker diggerWorker = new DiggerWorkerBuilder(potentialHit, currentDepth + 1)
-                                            .fileExtensions(fileExtensions)
-                                            .threadPool(executorService)
-                                            .httpClient(httpAsyncClient)
-                                            .dirList(dirList)
-                                            .responseCodes(watchedResponseCodes)
-                                            .directoryList(dirsAndFilesListGui)
-                                            .maxDepth(maxDepth)
-                                            .followRedirects(followRedirects)
-                                            .tree(tree)
-                                            .progressBar(progressBar)
-                                            .logger(logging)
-                                            .build();
-                                    executorService.submit(diggerWorker);
                                 }
-                        }
-
-                        @Override
-                        public void failed(Exception ex) {
-                            log.warn("Exception from failed() http client: {}", ex.getMessage());
-                            log.warn("****** [POSSIBLE RATE LIMITER DETECTED] ******");
-                            try {
-                                executorService.pause();
-                                Thread.sleep(10000);
-                                executorService.resume();
-                            } catch (InterruptedException e) {
-                                log.warn("Interrupted rate limiter sleep!!!");
-                                throw new RuntimeException(e);
-//                                e.printStackTrace();
                             }
-                        }
 
-                        @Override
-                        public void cancelled() {
+                            @Override
+                            public void failed(Exception ex) {
+                                log.warn("Exception from failed() http client: {}", ex.getMessage());
+                                log.warn("****** [POSSIBLE RATE LIMITER DETECTED] ******");
+                                try {
+                                    executorService.pause();
+                                    Thread.sleep(10000);
+                                    executorService.resume();
+                                } catch (InterruptedException e) {
+                                    log.warn("failed() Interrupted rate limiter sleep!!!\n\t\t{}", e.getMessage());
+                                    throw new RuntimeException(e);
+                                }
+                            }
 
-                        }
-                    });
-                    future.get();
-
-                    // setting refresh rate for better UX
-                    if (i % 20 == 0 || i == partition.size() - 1) {
-                        ((DefaultTreeModel) tree.getTree().getModel()).reload();
-                        ((DefaultTreeModel) tree.getRedirectTree().getModel()).reload();
-                        JTreeUtils.expandAllNodesOnReload(tree.getTree());
-                        JTreeUtils.expandAllNodesOnReload(tree.getRedirectTree());
+                            @Override
+                            public void cancelled() {
+                                log.warn("Http request cancelled for some reason {}", potentialHit);
+                            }
+                        });
+                        extensionFuture.get();
+                        publish(false);
                     }
+                }
+
+                // setting refresh rate for better UX
+                if (i % 20 == 0 || i == dirList.size() - 1) {
+                    ((DefaultTreeModel) tree.getTree().getModel()).reload();
+                    ((DefaultTreeModel) tree.getRedirectTree().getModel()).reload();
+                    JTreeUtils.expandAllNodesOnReload(tree.getTree());
+                    JTreeUtils.expandAllNodesOnReload(tree.getRedirectTree());
                 }
             }
         } catch (Exception e) {
@@ -229,162 +316,46 @@ public class DiggerWorker extends SwingWorker<String, DiggerNode> {
             } catch (InterruptedException ex) {
                 log.warn("Interrupted rate limiter sleep!!!");
                 throw new RuntimeException(ex);
-//                                e.printStackTrace();
             }
-//            throw new RuntimeException(e);
+            // let this finally be here for now
+            finally {
+                if (fileExtensions != null && !fileExtensions.isEmpty())
+                    progressBar.setMaximum(progressBar.getMaximum() - (dirListGui.getSize() * fileExtensions.size()));
+                else
+                    progressBar.setMaximum(progressBar.getMaximum() - dirListGui.getSize());
+            }
         } finally {
-            httpAsyncClient.close();
+            if (progressBar.getValue() >= progressBar.getMaximum())
+                httpAsyncClient.close();
         }
     }
 
-    public void digPipelined() throws Exception {
-
-    }
-
-//    public void dig(String url, int depth) throws Exception {
-//
-////        logging.logToOutput("entering dig()");
-//        System.out.println("entering dig()");
-//
-//        for (List<String> partition : partitionedDirList) {
-//
-//            setProgress(progressBar.getValue() + 10);
-//
-//            final MinimalHttpAsyncClient client = HttpAsyncClients.createMinimal(
-//                    H2Config.DEFAULT,
-//                    Http1Config.DEFAULT,
-//                    IOReactorConfig.DEFAULT,
-//                    PoolingAsyncClientConnectionManagerBuilder.create()
-//                            .setDefaultTlsConfig(TlsConfig.custom()
-//                                    .setVersionPolicy(HttpVersionPolicy.FORCE_HTTP_1)
-//                                    .build())
-//                            .build());
-//
-//            client.start();
-//
-////            final HttpHost target = new HttpHost(scheme, hostname, port);
-//            final HttpHost target = new HttpHost(scheme, hostname);
-//            final Future<AsyncClientEndpoint> leaseFuture = client.lease(target, null);
-//            final AsyncClientEndpoint endpoint = leaseFuture.get(30, TimeUnit.SECONDS);
-//            try {
-//                final CountDownLatch latch = new CountDownLatch(partition.size());
-//                for (final String requestUri: partition) {
-//                    final SimpleHttpRequest request = SimpleRequestBuilder.get()
-//                            .setHttpHost(target)
-//                            .setPath(requestUri)
-//                            .build();
-//
-////                    String potentialHit = scheme + "://" + hostname + ":" + port + "/" + request.getPath();
-//                    String potentialHit = scheme + "://" + hostname + "/" + request.getPath();
-//
-//                    endpoint.execute(
-//                            SimpleRequestProducer.create(request),
-//                            SimpleResponseConsumer.create(),
-//                            new FutureCallback<SimpleHttpResponse>() {
-//
-//                                @Override
-//                                public void completed(final SimpleHttpResponse response) {
-//                                    latch.countDown();
-////                                    logging.logToOutput(request + " -------------- > " + new StatusLine(response));
-//
-//                                    System.out.println("Response code for " + potentialHit + " = " + response.getCode());
-//
-//                                    if (response.getCode() != 404 && depth < maxDepth) {
-////                                        logging.logToOutput(request.getPath());
-//                                        DefaultMutableTreeNode parent = findParentNode(potentialHit, root);
-//                                        core.DiggerNode node = new core.DiggerNode(parent, potentialHit, UrlUtils.getResponseStatus(response.getCode()));
-//                                        publish(node);
-//
-//                                        core.DiggerWorker diggerWorker = new DiggerWorkerBuilder(potentialHit  + "/", currentDepth + 1)
-//                                                .fileExtensions(fileExtensions)
-//                                                .threadPool(executorService)
-//                                                .dirList(dirList)
-//                                                .directoryList(dirsAndFilesListGui)
-//                                                .maxDepth(maxDepth)
-//                                                .tree(tree)
-//                                                .progressBar(progressBar)
-//                                                .logger(logging)
-//                                                .build();
-//                                        executorService.submit(diggerWorker);
-//                                    }
-//                                }
-//
-//                                @Override
-//                                public void failed(final Exception ex) {
-//                                    latch.countDown();
-//                                    System.out.println(request + " -------------- > " + ex);
-//                                    System.out.println(ex.getCause().getMessage());
-//                                }
-//
-//                                @Override
-//                                public void cancelled() {
-//                                    latch.countDown();
-//                                    System.out.println(request + " cancelled");
-//                                }
-//
-//                            });
-//                }
-//                latch.await();
-//            } finally {
-//                endpoint.releaseAndReuse();
-//            }
-//
-//            client.close(CloseMode.GRACEFUL);
-//        }
-//
-////        for (int i = 0; i < dirList.size(); i++) {
-////
-////            setProgress((i+1)*10);
-////
-////            String potential = url + dirListGui.getElementAt(i);
-////            if (potential.equals(url))
-////                continue;
-////            int rCode = makeRequest(potential);
-////            if (rCode != 404 && depth < maxDepth) {
-////
-////                DefaultMutableTreeNode parent = findParentNode(potential, root);
-////                core.DiggerNode node = new core.DiggerNode(parent, potential, UrlUtils.getResponseStatus(rCode));
-////                publish(node);
-////
-////                core.DiggerWorker diggerWorker = new DiggerWorkerBuilder(potential  + "/", currentDepth + 1)
-////                        .fileExtensions(fileExtensions)
-////                        .threadPool(executorService)
-////                        .dirList(dirList)
-////                        .directoryList(dirsAndFilesListGui)
-////                        .maxDepth(maxDepth)
-////                        .tree(tree)
-////                        .progressBar(progressBar)
-////                        .logger(logging)
-////                        .build();
-////                executorService.submit(diggerWorker);
-////            }
-////
-////            if (fileExtensions != null) {
-////                for (String fileExtension : fileExtensions) {
-////                    String potentialWithExtension = potential + "." + fileExtension;
-////                    int responseCode = makeRequest(potentialWithExtension);
-////                    if (responseCode != 404) {
-////                        DefaultMutableTreeNode parent = findParentNode(potentialWithExtension, root);
-////                        core.DiggerNode node = new core.DiggerNode(parent, potentialWithExtension, UrlUtils.getResponseStatus(responseCode));
-////                        publish(node);
-////                    }
-////                }
-////            }
-////        }
-//    }
-
+    // true when another directory has been found, so new max has to be set
+    // otherwise false
     @Override
-    protected void process(List<DiggerNode> nodes) {
-        for (DiggerNode node : nodes) {
-//            JTreeUtils.addNode(node, tree);
-            progressBar.setMaximum(progressBar.getMaximum() + 300);
+    protected void process(List<Boolean> chunks) {
+        for (Boolean chunk : chunks) {
+            if (chunk) {
+                if (CollectionUtils.isNotEmpty(fileExtensions))
+                    progressBar.setMaximum(progressBar.getMaximum() + (dirListGui.getSize() * fileExtensions.size()));
+                else
+                    progressBar.setMaximum(progressBar.getMaximum() + dirListGui.getSize());
+
+                log.debug("new maximum {}", progressBar.getMaximum());
+            } else {
+                log.debug("current value for progressBar {}", progressBar.getValue() + 1);
+                progressBar.setValue(progressBar.getValue() + 1);
+            }
         }
     }
 
     @Override
     protected void done() {
-        progressBar.setVisible(false);
-        dirsAndFilesListGui.setModel(new DefaultListModel<>());
+        log.debug("[FINISH] One worker thread has finished!!!");
+        if (progressBar.getValue() >= progressBar.getMaximum()) {
+            progressBar.setVisible(false);
+            dirsAndFilesListGui.setModel(new DefaultListModel<>());
+        }
     }
 
     public static class DiggerWorkerBuilder {

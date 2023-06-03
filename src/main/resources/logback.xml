@@ -16,22 +16,24 @@
     </appender>
 
     <!-- Set the logging level for Apache HttpClient components -->
-    <logger name="org.apache.http.impl.nio.conn.ManagedNHttpClientConnectionImpl" level="DEBUG">
-        <appender-ref ref="STDOUT" />
-    </logger>
-    <logger name="org.apache.http.impl.conn.LoggingManagedHttpClientConnection" level="DEBUG">
-        <appender-ref ref="STDOUT" />
-    </logger>
-    <logger name="org.apache.http.impl.nio.conn.PoolingNHttpClientConnectionManager" level="DEBUG">
-        <appender-ref ref="STDOUT" />
-    </logger>
+<!--    <logger name="org.apache.http.impl.nio.conn.ManagedNHttpClientConnectionImpl" level="DEBUG">-->
+<!--        <appender-ref ref="STDOUT" />-->
+<!--    </logger>-->
+<!--    <logger name="org.apache.http.impl.conn.LoggingManagedHttpClientConnection" level="DEBUG">-->
+<!--        <appender-ref ref="STDOUT" />-->
+<!--    </logger>-->
+<!--    <logger name="org.apache.http.impl.nio.conn.PoolingNHttpClientConnectionManager" level="DEBUG">-->
+<!--        <appender-ref ref="STDOUT" />-->
+<!--    </logger>-->
 
     <!-- Set the logging level for DirDigger components -->
     <logger name="core.DiggerWorker" level="DEBUG">
         <appender-ref ref="STDOUT" />
+        <appender-ref ref="FILE" />
     </logger>
     <logger name="utils.CustomRedirectStrategy" level="DEBUG">
         <appender-ref ref="STDOUT" />
+        <appender-ref ref="FILE" />
     </logger>
 
 <!--    <root level="debug">-->

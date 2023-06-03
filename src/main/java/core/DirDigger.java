@@ -2,9 +2,7 @@ package core;
 
 import burp.api.montoya.logging.Logging;
 import org.apache.http.HttpHost;
-import org.apache.http.HttpResponse;
 import org.apache.http.client.config.CookieSpecs;
-import org.apache.http.concurrent.FutureCallback;
 import org.apache.http.impl.nio.client.HttpAsyncClients;
 import org.apache.http.impl.nio.conn.PoolingNHttpClientConnectionManager;
 import org.apache.http.impl.nio.reactor.DefaultConnectingIOReactor;
@@ -117,15 +115,11 @@ public class DirDigger {
 
         seeRedirectTree.addActionListener(e -> {
             if (seeRedirectTree.isSelected()) {
-//                treeScrollPane.setVisible(false);
                 tree.setVisible(false);
                 redirectTreeScrollPane.setVisible(true);
-//                redirectTree.setVisible(true);
             } else {
                 redirectTreeScrollPane.setVisible(false);
-//                redirectTree.setVisible(false);
                 tree.setVisible(true);
-//                treeScrollPane.setVisible(true);
             }
         });
 
@@ -134,11 +128,16 @@ public class DirDigger {
                 try {
                     String scheme = UrlUtils.getScheme(urlTextField.getText());
                     String hostname = UrlUtils.getHostname(urlTextField.getText());
+                    if (hostname.endsWith("/"))
+                        hostname = hostname.substring(0, hostname.length() - 1);
                     initHttpClient(scheme, hostname);
                 } catch (Exception ex) {
                     System.out.println(ex.getMessage());
                 }
                 initThreadPool();
+
+                if (!followRedirect.isSelected())
+                    updateUIComponentsPositions();
 
                 errorMessage.setVisible(false);
                 progressBar.setVisible(true);
@@ -151,6 +150,11 @@ public class DirDigger {
                             fileExtensionsTextField.getText().contains(",") ? "," : " "
                     ));
                 }
+
+                if (fileExtensions != null && !fileExtensions.isEmpty())
+                    progressBar.setMaximum(dirsAndFilesList.getModel().getSize() * fileExtensions.size());
+                else
+                    progressBar.setMaximum(dirsAndFilesList.getModel().getSize());
 
                 String url = urlTextField.getText().trim();
                 if (url.endsWith("/"))
@@ -166,6 +170,8 @@ public class DirDigger {
                 DefaultMutableTreeNode target = new DefaultMutableTreeNode(new DiggerNode(redirectRoot, url, UrlUtils.HttpResponseCodeStatus.SUCCESS));
                 redirectRoot.add(target);
                 redirectTree.scrollPathToVisible(new TreePath(child.getPath()));
+
+                disableComponentsWhenStart();
 
                 diggerWorker = new DiggerWorker.DiggerWorkerBuilder(url, 0)
                         .fileExtensions(fileExtensions)
@@ -381,7 +387,7 @@ public class DirDigger {
         startDigging.setMaximumSize(new Dimension(600, startDigging.getPreferredSize().height));
         startDigging.setMinimumSize(new Dimension(600, startDigging.getPreferredSize().height));
 
-        progressBar = new JProgressBar(0, 300);
+        progressBar = new JProgressBar(0, 100);
         progressBar.setMaximumSize(new Dimension(600, progressBar.getPreferredSize().height));
         progressBar.setMinimumSize(new Dimension(600, progressBar.getPreferredSize().height));
         progressBar.setValue(0);
@@ -466,14 +472,10 @@ public class DirDigger {
         CustomIconRenderer customIconRenderer = new CustomIconRenderer();
         tree.setCellRenderer(customIconRenderer);
 
-        treeScrollPane = new JScrollPane(tree);
-        treeScrollPane.setMaximumSize(new Dimension(600, 500));
-        treeScrollPane.setMinimumSize(new Dimension(600, 500));
-
         wrappedTree.setTree(tree);
 
         redirectTree = new JTree();
-        redirectTree.setVisible(false);
+//        redirectTree.setVisible(false);
         redirectTree.setRootVisible(false);
         DefaultTreeModel redirectModel = (DefaultTreeModel) redirectTree.getModel();
         DefaultMutableTreeNode redirectRoot = new DefaultMutableTreeNode(new DiggerNode(null, "redirect tree root", UrlUtils.HttpResponseCodeStatus.REDIRECTION));
@@ -482,8 +484,8 @@ public class DirDigger {
 
         redirectTreeScrollPane = new JScrollPane(redirectTree);
         redirectTreeScrollPane.setVisible(false);
-        redirectTreeScrollPane.setMaximumSize(new Dimension(800, 700));
-        redirectTreeScrollPane.setMinimumSize(new Dimension(800, 700));
+        redirectTreeScrollPane.setMaximumSize(new Dimension(1000, 1000));
+        redirectTreeScrollPane.setMinimumSize(new Dimension(1000, 1000));
 
         wrappedTree.setRedirectTree(redirectTree);
     }
@@ -582,10 +584,8 @@ public class DirDigger {
 
                         .addComponent(verticalSeparator)
 
-//                        .addComponent(treeScrollPane)
                         .addComponent(tree)
                         .addComponent(redirectTreeScrollPane)
-//                        .addComponent(redirectTree)
         );
 
         layout.setVerticalGroup(
@@ -671,11 +671,199 @@ public class DirDigger {
 
                         .addComponent(verticalSeparator)
 
-//                        .addComponent(treeScrollPane)
                         .addComponent(tree)
                         .addComponent(redirectTreeScrollPane)
-//                        .addComponent(redirectTree)
         );
+    }
+
+    // when there is no redirection following
+    private void updateUIComponentsPositions() {
+        GroupLayout layout = (GroupLayout) panel.getLayout();
+
+        treeScrollPane = new JScrollPane(tree);
+        treeScrollPane.setMaximumSize(new Dimension(1000, 1000));
+        treeScrollPane.setMinimumSize(new Dimension(1000, 1000));
+
+        layout.setHorizontalGroup(
+                layout.createSequentialGroup()
+
+                        // first group of components
+                        .addGroup(layout.createParallelGroup()
+                                .addGroup(layout.createParallelGroup(GroupLayout.Alignment.TRAILING)
+                                        .addGroup(layout.createSequentialGroup()
+                                                .addComponent(urlLabel)
+                                                .addComponent(urlTextField)
+                                        )
+                                        .addGroup(layout.createSequentialGroup()
+                                                .addComponent(fileExtensionsLabel)
+                                                .addComponent(fileExtensionsTextField)
+                                        )
+                                )
+
+                                .addComponent(firstHorizontalSeparator)
+
+                                .addGroup(layout.createSequentialGroup()
+                                        .addComponent(loadFileOfDirsLabel)
+                                        .addComponent(browseFiles)
+                                )
+                                .addGroup(layout.createSequentialGroup()
+                                        .addComponent(addDirListEntry)
+                                        .addComponent(entryTextField)
+                                        .addComponent(addEntryButton)
+                                )
+                                .addComponent(clearDirList)
+                                .addComponent(dirScrollPane)
+
+                                .addComponent(secondHorizontalSeparator)
+
+                                .addGroup(layout.createSequentialGroup()
+                                        .addComponent(sliderDepthLabel)
+                                        .addComponent(depthSlider)
+                                )
+                                .addGroup(layout.createSequentialGroup()
+                                        .addComponent(threadNumSliderLabel)
+                                        .addComponent(threadNumSlider)
+                                )
+                                .addGroup(layout.createSequentialGroup()
+                                        .addComponent(proxyAndPortLabel)
+                                        .addComponent(proxyAndPort)
+                                )
+                                .addGroup(layout.createSequentialGroup()
+                                        .addComponent(responseCodesLabel)
+                                        .addComponent(responseCodes)
+                                )
+
+                                .addComponent(followRedirect)
+                                .addComponent(seeRedirectTree)
+
+                                .addComponent(thirdHorizontalSeparator)
+
+                                .addComponent(errorMessage)
+                                .addComponent(startDigging)
+                                .addComponent(progressBar)
+
+                                .addComponent(fourthHorizontalSeparator)
+
+                                .addComponent(legendHeader)
+                                .addGroup(layout.createParallelGroup()
+                                        .addGroup(layout.createSequentialGroup()
+                                                .addComponent(legendCircleInfo)
+                                                .addComponent(legendInfo)
+                                        )
+                                        .addGroup(layout.createSequentialGroup()
+                                                .addComponent(legendCircleSuccess)
+                                                .addComponent(legendSuccess)
+                                        )
+                                        .addGroup(layout.createSequentialGroup()
+                                                .addComponent(legendCircleRedirect)
+                                                .addComponent(legendRedirect)
+                                        )
+                                        .addGroup(layout.createSequentialGroup()
+                                                .addComponent(legendCircleClientError)
+                                                .addComponent(legendClientError)
+                                        )
+                                        .addGroup(layout.createSequentialGroup()
+                                                .addComponent(legendCircleServerError)
+                                                .addComponent(legendServerError)
+                                        )
+                                )
+                        )
+
+                        .addComponent(verticalSeparator)
+
+                        .addComponent(treeScrollPane)
+        );
+
+        layout.setVerticalGroup(
+                layout.createParallelGroup()
+
+                        .addGroup(layout.createSequentialGroup()
+
+                                .addGroup(layout.createParallelGroup()
+                                        .addComponent(urlLabel)
+                                        .addComponent(urlTextField)
+                                )
+                                .addGroup(layout.createParallelGroup()
+                                        .addComponent(fileExtensionsLabel)
+                                        .addComponent(fileExtensionsTextField)
+                                )
+
+                                .addComponent(firstHorizontalSeparator)
+
+                                .addGroup(layout.createParallelGroup()
+                                        .addComponent(loadFileOfDirsLabel)
+                                        .addComponent(browseFiles)
+                                )
+                                .addGroup(layout.createParallelGroup()
+                                        .addComponent(addDirListEntry)
+                                        .addComponent(entryTextField)
+                                        .addComponent(addEntryButton)
+                                )
+                                .addComponent(clearDirList)
+                                .addComponent(dirScrollPane)
+
+                                .addComponent(secondHorizontalSeparator)
+
+                                .addGroup(layout.createParallelGroup()
+                                        .addComponent(sliderDepthLabel)
+                                        .addComponent(depthSlider)
+                                )
+                                .addGroup(layout.createParallelGroup()
+                                        .addComponent(threadNumSliderLabel)
+                                        .addComponent(threadNumSlider)
+                                )
+                                .addGroup(layout.createParallelGroup()
+                                        .addComponent(proxyAndPortLabel)
+                                        .addComponent(proxyAndPort)
+                                )
+                                .addGroup(layout.createParallelGroup()
+                                        .addComponent(responseCodesLabel)
+                                        .addComponent(responseCodes)
+                                )
+
+                                .addComponent(followRedirect)
+                                .addComponent(seeRedirectTree)
+
+                                .addComponent(thirdHorizontalSeparator)
+
+                                .addComponent(errorMessage)
+                                .addComponent(startDigging)
+                                .addComponent(progressBar)
+
+                                .addComponent(fourthHorizontalSeparator)
+
+                                .addComponent(legendHeader)
+                                .addGroup(layout.createParallelGroup()
+                                        .addComponent(legendCircleInfo)
+                                        .addComponent(legendInfo)
+                                )
+                                .addGroup(layout.createParallelGroup()
+                                        .addComponent(legendCircleSuccess)
+                                        .addComponent(legendSuccess)
+                                )
+                                .addGroup(layout.createParallelGroup()
+                                        .addComponent(legendCircleRedirect)
+                                        .addComponent(legendRedirect)
+                                )
+                                .addGroup(layout.createParallelGroup()
+                                        .addComponent(legendCircleClientError)
+                                        .addComponent(legendClientError)
+                                )
+                                .addGroup(layout.createParallelGroup()
+                                        .addComponent(legendCircleServerError)
+                                        .addComponent(legendServerError)
+                                )
+                        )
+
+                        .addComponent(verticalSeparator)
+
+                        .addComponent(treeScrollPane)
+        );
+
+        panel.setLayout(layout);
+        // Refresh the panel after adding the new component
+        panel.revalidate();
+        panel.repaint();
     }
 
     private void initHttpClient(String scheme, String hostname) throws IOReactorException {
@@ -688,7 +876,7 @@ public class DirDigger {
                 .setSoTimeout(30000)
                 .build();
 
-        // Create a custom I/O reactort
+        // Create a custom I/O reactor
         ConnectingIOReactor ioReactor = new DefaultConnectingIOReactor(ioReactorConfig);
 
         // Create a connection manager with custom configuration.
@@ -786,5 +974,17 @@ public class DirDigger {
                 exception.printStackTrace();
             }
         dirsAndFilesList.setModel(listModel);
+    }
+
+    private void disableComponentsWhenStart() {
+        followRedirect.setEnabled(false);
+        threadNumSlider.setEnabled(false);
+        depthSlider.setEnabled(false);
+        clearDirList.setEnabled(false);
+        browseFiles.setEnabled(false);
+        addEntryButton.setEnabled(false);
+
+        panel.revalidate();
+        panel.repaint();
     }
 }
