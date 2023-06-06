@@ -1,9 +1,14 @@
 package core;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class PausableThreadPoolExecutor extends ThreadPoolExecutor {
+
+    private static final Logger log = LoggerFactory.getLogger(PausableThreadPoolExecutor.class);
 
     private final AtomicBoolean isPaused;
     private final CyclicBarrier barrier;
@@ -36,6 +41,7 @@ public class PausableThreadPoolExecutor extends ThreadPoolExecutor {
 
     @Override
     protected void beforeExecute(Thread t, Runnable r) {
+        log.debug("[BEFORE-THREAD-EXEC] Num of threads in a pool: {}, num of tasks in queue: {}", getPoolSize(), getQueue().size());
         super.beforeExecute(t, r);
         if (isPaused.get()) {
             try {

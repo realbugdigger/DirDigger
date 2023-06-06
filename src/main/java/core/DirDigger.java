@@ -32,6 +32,7 @@ import java.net.UnknownHostException;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class DirDigger {
 
@@ -56,8 +57,13 @@ public class DirDigger {
     private JScrollPane dirScrollPane;
 
     private JLabel errorMessage;
-//    private JButton startDigging;
-    private JToggleButton startDigging;
+    private JButton startDigging;
+    private boolean isDigging = false;
+    private boolean firstInitialization = true;
+    private JButton cancelDigging;
+    private AtomicBoolean isDiggingCanceled;
+    private JButton saveDigging;
+    private AtomicBoolean isDiggingSave;
     private JProgressBar progressBar;
 
     private JLabel sliderDepthLabel;
@@ -95,7 +101,8 @@ public class DirDigger {
     private JSeparator thirdHorizontalSeparator;
     private JSeparator fourthHorizontalSeparator;
 
-    private ExecutorService executorService;
+    private PausableThreadPoolExecutor executorService;
+    private List<Runnable> tasks = new ArrayList<>();
 
     private org.apache.http.impl.nio.client.CloseableHttpAsyncClient httpAsyncClient;
 
@@ -123,84 +130,6 @@ public class DirDigger {
             }
         });
 
-        startDigging.addActionListener(e -> {
-            if (isValidToStart()) {
-                try {
-                    String scheme = UrlUtils.getScheme(urlTextField.getText());
-                    String hostname = UrlUtils.getHostname(urlTextField.getText());
-                    if (hostname.endsWith("/"))
-                        hostname = hostname.substring(0, hostname.length() - 1);
-                    initHttpClient(scheme, hostname);
-                } catch (Exception ex) {
-                    System.out.println(ex.getMessage());
-                }
-                initThreadPool();
-
-                if (!followRedirect.isSelected())
-                    updateUIComponentsPositions();
-
-                errorMessage.setVisible(false);
-                progressBar.setVisible(true);
-                tree.setVisible(true);
-                seeRedirectTree.setVisible(followRedirect.isSelected());
-
-                List<String> fileExtensions = null;
-                if (fileExtensionsTextField.getText() != null && !fileExtensionsTextField.getText().equals("")) {
-                    fileExtensions = List.of(fileExtensionsTextField.getText().split(
-                            fileExtensionsTextField.getText().contains(",") ? "," : " "
-                    ));
-                }
-
-                if (fileExtensions != null && !fileExtensions.isEmpty())
-                    progressBar.setMaximum(dirsAndFilesList.getModel().getSize() * fileExtensions.size());
-                else
-                    progressBar.setMaximum(dirsAndFilesList.getModel().getSize());
-
-                String url = urlTextField.getText().trim();
-                if (url.endsWith("/"))
-                    url = url.substring(0, url.length() - 1);
-
-                DefaultTreeModel model = (DefaultTreeModel) tree.getModel();
-                DefaultMutableTreeNode child = new DefaultMutableTreeNode(new DiggerNode(null, url, UrlUtils.HttpResponseCodeStatus.SUCCESS));
-                model.setRoot(child);
-                tree.scrollPathToVisible(new TreePath(child.getPath()));
-
-                DefaultTreeModel redirectTreeModel = (DefaultTreeModel) redirectTree.getModel();
-                DefaultMutableTreeNode redirectRoot = (DefaultMutableTreeNode) redirectTreeModel.getRoot();
-                DefaultMutableTreeNode target = new DefaultMutableTreeNode(new DiggerNode(redirectRoot, url, UrlUtils.HttpResponseCodeStatus.SUCCESS));
-                redirectRoot.add(target);
-                redirectTree.scrollPathToVisible(new TreePath(child.getPath()));
-
-                disableComponentsWhenStart();
-
-                diggerWorker = new DiggerWorker.DiggerWorkerBuilder(url, 0)
-                        .fileExtensions(fileExtensions)
-                        .threadPool(executorService)
-                        .httpClient(httpAsyncClient)
-                        .dirList(entryList)
-                        .responseCodes(loadWatchedResponseCodes())
-                        .directoryList(dirsAndFilesList)
-                        .maxDepth(depthSlider.getValue())
-                        .followRedirects(followRedirect.isSelected())
-                        .tree(wrappedTree)
-                        .progressBar(progressBar)
-                        .logger(logging)
-                        .build();
-                diggerWorker.addPropertyChangeListener(evt -> {
-                    if ("progress".equals(evt.getPropertyName())) {
-                        int progress = (Integer) evt.getNewValue();
-                        progressBar.setValue(progress);
-                    }
-                });
-
-                diggerWorker.execute();
-            } else {
-                errorMessage.setText("Url not provided or list hasn't been loaded");
-                errorMessage.setForeground(Color.RED);
-                errorMessage.setVisible(true);
-            }
-        });
-
         clearDirList.addActionListener(e -> dirsAndFilesList.setModel(new DefaultListModel<>()));
 
         addEntryButton.addActionListener(e -> {
@@ -213,6 +142,27 @@ public class DirDigger {
     }
 
     private void initThreadPool() {
+        ThreadFactory threadFactory =
+                new ThreadFactory() {
+                    final ThreadFactory defaultFactory =
+                            Executors.defaultThreadFactory();
+                    public Thread newThread(final Runnable r) {
+                        Thread thread =
+                                defaultFactory.newThread(r);
+                        thread.setName("SwingWorker-"
+                                + thread.getName());
+                        thread.setDaemon(true);
+                        return thread;
+                    }
+                };
+
+        executorService = new PausableThreadPoolExecutor(threadNumSlider.getValue(), threadNumSlider.getValue(),
+                10L, TimeUnit.MINUTES,
+                new LinkedBlockingQueue<>(), threadFactory,
+                20);
+    }
+
+    private void initThreadPoolV2(int size) {
         ThreadFactory threadFactory =
                 new ThreadFactory() {
                     final ThreadFactory defaultFactory =
@@ -358,7 +308,6 @@ public class DirDigger {
         proxyAndPort.setMaximumSize(new Dimension(500, proxyAndPort.getPreferredSize().height));
         proxyAndPort.setMinimumSize(new Dimension(500, proxyAndPort.getPreferredSize().height));
 
-//        responseCodesLabel = new JLabel("Filter response codes");
         responseCodesLabel = new JLabel("Response codes");
 
         responseCodes = new JFormattedTextField();
@@ -376,16 +325,63 @@ public class DirDigger {
         errorMessage = new JLabel();
         errorMessage.setVisible(false);
 
-//        startDigging = new JButton("Start Digging");
-        startDigging = new JToggleButton("Start Digging");
+        startDigging = new JButton("Start Digging");
         startDigging.addActionListener(e -> {
-            if (startDigging.getModel().isSelected() && isValidToStart())
+            if (startDigging.getText().equals("Continue Digging")) {
+                cancelDigging.setVisible(false);
+                saveDigging.setVisible(false);
+
+                log.debug("Continuing digging with num of tasks: {}", tasks.size());
+                initThreadPoolV2(tasks.size());
+                for (Runnable task : tasks) {
+                    executorService.submit(task);
+                }
+                executorService.resume();
+            }
+
+            if (!isDigging && isValidToStart()) {
+                isDigging = true;
                 startDigging.setText("Stop Digging");
-            else if (isValidToStart())
-                startDigging.setText("Continue digging");
+
+                if (firstInitialization)
+                    firstInit();
+            } else if (isDigging) { // stop digging
+                tasks = executorService.shutdownNow();
+                isDigging = false;
+                log.debug("[ExecutorService STOP] Thread pool should stop threads from executing");
+                // show cancel and save buttons
+                startDigging.setText("Continue Digging");
+                cancelDigging.setVisible(true);
+                saveDigging.setVisible(true);
+            } else if (!isValidToStart()) {
+                errorMessage.setText("Url not provided or list hasn't been loaded");
+                errorMessage.setForeground(Color.RED);
+                errorMessage.setVisible(true);
+            }
         });
         startDigging.setMaximumSize(new Dimension(600, startDigging.getPreferredSize().height));
         startDigging.setMinimumSize(new Dimension(600, startDigging.getPreferredSize().height));
+
+        cancelDigging = new JButton("Cancel Digging");
+        cancelDigging.addActionListener(e -> {
+            executorService.shutdownNow();
+            progressBar.setValue(0);
+            progressBar.setVisible(false);
+            dirsAndFilesList.setModel(new DefaultListModel<>());
+
+            reEnableComponentsWhenCancel();
+            firstInitialization = true;
+            startDigging.setText("Start Digging");
+            cancelDigging.setVisible(false);
+            saveDigging.setVisible(false);
+        });
+        cancelDigging.setVisible(false);
+
+        saveDigging = new JButton("Save Digging");
+        saveDigging.addActionListener(e -> {
+
+        });
+        saveDigging.setVisible(false);
 
         progressBar = new JProgressBar(0, 100);
         progressBar.setMaximumSize(new Dimension(600, progressBar.getPreferredSize().height));
@@ -393,6 +389,81 @@ public class DirDigger {
         progressBar.setValue(0);
         progressBar.setStringPainted(true);
         progressBar.setVisible(false);
+    }
+
+    private void firstInit() {
+        firstInitialization = false;
+        try {
+            String scheme = UrlUtils.getScheme(urlTextField.getText());
+            String hostname = UrlUtils.getHostname(urlTextField.getText());
+            if (hostname.endsWith("/"))
+                hostname = hostname.substring(0, hostname.length() - 1);
+            initHttpClient(scheme, hostname);
+        } catch (Exception ex) {
+            System.out.println(ex.getMessage());
+        }
+        initThreadPool();
+
+        if (!followRedirect.isSelected())
+            updateUIComponentsPositions();
+
+        errorMessage.setVisible(false);
+        progressBar.setVisible(true);
+        tree.setVisible(true);
+        seeRedirectTree.setVisible(followRedirect.isSelected());
+
+        List<String> fileExtensions = null;
+        if (fileExtensionsTextField.getText() != null && !fileExtensionsTextField.getText().equals("")) {
+            fileExtensions = List.of(fileExtensionsTextField.getText().split(
+                    fileExtensionsTextField.getText().contains(",") ? "," : " "
+            ));
+        }
+
+        if (fileExtensions != null && !fileExtensions.isEmpty())
+            progressBar.setMaximum(dirsAndFilesList.getModel().getSize() * fileExtensions.size());
+        else
+            progressBar.setMaximum(dirsAndFilesList.getModel().getSize());
+
+        String url = urlTextField.getText().trim();
+        if (url.endsWith("/"))
+            url = url.substring(0, url.length() - 1);
+
+        DefaultTreeModel model = (DefaultTreeModel) tree.getModel();
+        DefaultMutableTreeNode child = new DefaultMutableTreeNode(new DiggerNode(null, url, UrlUtils.HttpResponseCodeStatus.SUCCESS));
+        model.setRoot(child);
+        tree.scrollPathToVisible(new TreePath(child.getPath()));
+
+        DefaultTreeModel redirectTreeModel = (DefaultTreeModel) redirectTree.getModel();
+        DefaultMutableTreeNode redirectRoot = (DefaultMutableTreeNode) redirectTreeModel.getRoot();
+        DefaultMutableTreeNode target = new DefaultMutableTreeNode(new DiggerNode(redirectRoot, url, UrlUtils.HttpResponseCodeStatus.SUCCESS));
+        redirectRoot.add(target);
+        redirectTree.scrollPathToVisible(new TreePath(child.getPath()));
+
+        disableComponentsWhenStart();
+
+        diggerWorker = new DiggerWorker.DiggerWorkerBuilder(url, 0)
+                .fileExtensions(fileExtensions)
+                .threadPool(executorService)
+                .httpClient(httpAsyncClient)
+                .dirList(entryList)
+                .responseCodes(loadWatchedResponseCodes())
+                .directoryList(dirsAndFilesList)
+                .maxDepth(depthSlider.getValue())
+                .followRedirects(followRedirect.isSelected())
+                .tree(wrappedTree)
+                .progressBar(progressBar)
+                .logger(logging)
+                .build();
+        diggerWorker.addPropertyChangeListener(evt -> {
+            if ("progress".equals(evt.getPropertyName())) {
+                int progress = (Integer) evt.getNewValue();
+                progressBar.setValue(progress);
+                if (progressBar.getValue() == progressBar.getMaximum())
+                    startDigging.setText("Start Digging");
+            }
+        });
+
+        diggerWorker.execute();
     }
 
     private boolean isValidToStart() {
@@ -553,6 +624,12 @@ public class DirDigger {
 
                                 .addComponent(errorMessage)
                                 .addComponent(startDigging)
+                                .addGroup(layout.createParallelGroup(GroupLayout.Alignment.TRAILING)
+                                        .addGroup(layout.createSequentialGroup()
+                                                .addComponent(cancelDigging)
+                                                .addComponent(saveDigging)
+                                        )
+                                )
                                 .addComponent(progressBar)
 
                                 .addComponent(fourthHorizontalSeparator)
@@ -642,6 +719,10 @@ public class DirDigger {
 
                                 .addComponent(errorMessage)
                                 .addComponent(startDigging)
+                                .addGroup(layout.createParallelGroup()
+                                        .addComponent(cancelDigging)
+                                        .addComponent(saveDigging)
+                                )
                                 .addComponent(progressBar)
 
                                 .addComponent(fourthHorizontalSeparator)
@@ -740,6 +821,12 @@ public class DirDigger {
 
                                 .addComponent(errorMessage)
                                 .addComponent(startDigging)
+                                .addGroup(layout.createParallelGroup(GroupLayout.Alignment.TRAILING)
+                                        .addGroup(layout.createSequentialGroup()
+                                                .addComponent(cancelDigging)
+                                                .addComponent(saveDigging)
+                                        )
+                                )
                                 .addComponent(progressBar)
 
                                 .addComponent(fourthHorizontalSeparator)
@@ -828,6 +915,10 @@ public class DirDigger {
 
                                 .addComponent(errorMessage)
                                 .addComponent(startDigging)
+                                .addGroup(layout.createParallelGroup()
+                                        .addComponent(cancelDigging)
+                                        .addComponent(saveDigging)
+                                )
                                 .addComponent(progressBar)
 
                                 .addComponent(fourthHorizontalSeparator)
@@ -957,7 +1048,7 @@ public class DirDigger {
     }
 
     private void loadTestDirFile() {
-        File file = new File("/home/marko/Desktop/top_1000_dirs.txt");
+        File file = new File("/home/marko/Desktop/top_100_dirs.txt");
 
         DefaultListModel<String> listModel = (DefaultListModel<String>) dirsAndFilesList.getModel();
             try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
@@ -983,6 +1074,18 @@ public class DirDigger {
         clearDirList.setEnabled(false);
         browseFiles.setEnabled(false);
         addEntryButton.setEnabled(false);
+
+        panel.revalidate();
+        panel.repaint();
+    }
+
+    private void reEnableComponentsWhenCancel() {
+        followRedirect.setEnabled(true);
+        threadNumSlider.setEnabled(true);
+        depthSlider.setEnabled(true);
+        clearDirList.setEnabled(true);
+        browseFiles.setEnabled(true);
+        addEntryButton.setEnabled(true);
 
         panel.revalidate();
         panel.repaint();
