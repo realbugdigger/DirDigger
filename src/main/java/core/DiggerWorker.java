@@ -13,6 +13,7 @@ import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
 import java.util.List;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class DiggerWorker extends SwingWorker<String, Boolean> {
 
@@ -46,6 +47,9 @@ public class DiggerWorker extends SwingWorker<String, Boolean> {
     private boolean enabledTimeoutBetweenRequests = false; // enable when rate limiter detected
     private int timeoutBetweenRequests = 100; // time is in milliseconds
 
+    private AtomicBoolean isDiggingSave;
+    private List<ThreadStateInfo> saveThreadList;
+
     private DiggerWorker(DiggerWorkerBuilder builder) {
         this.executorService = (PausableThreadPoolExecutor) builder.executorService;
         this.httpAsyncClient = builder.httpAsyncClient;
@@ -68,6 +72,9 @@ public class DiggerWorker extends SwingWorker<String, Boolean> {
         this.scheme = UrlUtils.getScheme(url);
         this.hostname = UrlUtils.getHostname(url);
         this.port = UrlUtils.getPort(url);
+
+        this.isDiggingSave = builder.isDiggingSave;
+        this.saveThreadList = builder.saveThreadList;
     }
 
     @Override
@@ -88,6 +95,13 @@ public class DiggerWorker extends SwingWorker<String, Boolean> {
         try {
             httpAsyncClient.start();
             for (int i = 0; i < dirList.size(); i++) {
+                if (isDiggingSave.get()) {
+                    ThreadStateInfo tsi = new ThreadStateInfo();
+                    tsi.setI(i);
+                    tsi.setUrl(url);
+                    saveThreadList.add(tsi);
+                }
+
                 String requestUri = dirList.get(i);
                 String potentialHit = scheme + "://" + hostname + "/" + requestUri;
                 org.apache.http.client.methods.HttpGet request = new org.apache.http.client.methods.HttpGet(potentialHit);
@@ -178,6 +192,7 @@ public class DiggerWorker extends SwingWorker<String, Boolean> {
                                         .tree(tree)
                                         .progressBar(progressBar)
                                         .logger(logging)
+                                        .save(isDiggingSave, saveThreadList)
                                         .build();
                                 executorService.submit(diggerWorker);
                             }
@@ -376,6 +391,8 @@ public class DiggerWorker extends SwingWorker<String, Boolean> {
         private JList<String> dirsAndFilesListGui;
         private WrappedJTree tree;
         private JProgressBar progressBar;
+        private AtomicBoolean isDiggingSave;
+        private List<ThreadStateInfo> saveThreadList;
 
         public DiggerWorkerBuilder(String url, int currentDepth) {
             this.url = url;
@@ -429,6 +446,12 @@ public class DiggerWorker extends SwingWorker<String, Boolean> {
 
         public DiggerWorkerBuilder progressBar(JProgressBar progressBar) {
             this.progressBar = progressBar;
+            return this;
+        }
+
+        public DiggerWorkerBuilder save(AtomicBoolean isDiggingSave, List<ThreadStateInfo> saveThreadList) {
+            this.isDiggingSave = isDiggingSave;
+            this.saveThreadList = saveThreadList;
             return this;
         }
 

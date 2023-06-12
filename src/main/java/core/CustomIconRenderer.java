@@ -15,7 +15,7 @@ public class CustomIconRenderer extends DefaultTreeCellRenderer {
 
         Object nodeObj = ((DefaultMutableTreeNode) value).getUserObject();
         DiggerNode diggerNode = (DiggerNode) nodeObj;
-        UrlUtils.HttpResponseCodeStatus responseStatus = diggerNode.getResponseStatus();
+        UrlUtils.HttpResponseCodeStatus responseStatus = diggerNode == null ? UrlUtils.HttpResponseCodeStatus.SUCCESS : diggerNode.getResponseStatus();
 
         switch (responseStatus) {
             case INFORMATIONAL:

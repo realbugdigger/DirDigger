@@ -1,7 +1,7 @@
 package core;
 
 import burp.api.montoya.logging.Logging;
-import org.apache.http.HttpHost;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.http.client.config.CookieSpecs;
 import org.apache.http.impl.nio.client.HttpAsyncClients;
 import org.apache.http.impl.nio.conn.PoolingNHttpClientConnectionManager;
@@ -18,17 +18,13 @@ import utils.UrlUtils;
 import javax.imageio.ImageIO;
 import javax.swing.*;
 import javax.swing.border.LineBorder;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreePath;
 import java.awt.*;
 import java.awt.image.BufferedImage;
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileReader;
-import java.io.IOException;
-import java.net.InetAddress;
-import java.net.UnknownHostException;
+import java.io.*;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.*;
@@ -61,9 +57,10 @@ public class DirDigger {
     private boolean isDigging = false;
     private boolean firstInitialization = true;
     private JButton cancelDigging;
-    private AtomicBoolean isDiggingCanceled;
     private JButton saveDigging;
-    private AtomicBoolean isDiggingSave;
+    private AtomicBoolean isDiggingSave = new AtomicBoolean(false);
+    private final List<ThreadStateInfo> saveThreadList = Collections.synchronizedList(new ArrayList<>());
+    private JButton loadDigging;
     private JProgressBar progressBar;
 
     private JLabel sliderDepthLabel;
@@ -379,9 +376,122 @@ public class DirDigger {
 
         saveDigging = new JButton("Save Digging");
         saveDigging.addActionListener(e -> {
+            isDiggingSave.set(true);
+            ApplicationContainer container = new ApplicationContainer();
+            container.setDirList(entryList);
 
+            List<String> fileExtensions = null;
+            if (fileExtensionsTextField.getText() != null && !fileExtensionsTextField.getText().equals("")) {
+                fileExtensions = List.of(fileExtensionsTextField.getText().split(
+                        fileExtensionsTextField.getText().contains(",") ? "," : " "
+                ));
+            }
+            container.setFileExList(fileExtensions);
+
+            container.setProgressBarValue(progressBar.getValue());
+            container.setFollowRedirect(followRedirect.isSelected());
+            container.setDirDepth(depthSlider.getValue());
+            container.setThreadNum(threadNumSlider.getValue());
+            container.setProxy(proxyAndPort.getText());
+            container.setResponseCodes(UrlUtils.loadWatchedResponseCodes(responseCodes.getText()));
+
+            // show dialog for saving file (open in Future????)
+            try {
+                Thread.sleep(3000);
+            } catch (InterruptedException ex) {
+                throw new RuntimeException(ex);
+            }
+
+            container.setThreads(saveThreadList);
+            container.setRegularTreeRoot((DefaultMutableTreeNode) tree.getModel().getRoot());
+            if (followRedirect.isSelected()) {
+                container.setRedirectTreeRoot(((DefaultMutableTreeNode) redirectTree.getModel().getRoot()));
+            }
+
+            JFileChooser fileChooser = new JFileChooser();
+            // Demonstrate "Save" dialog:
+            FileNameExtensionFilter filter = new FileNameExtensionFilter(".ddg", "ddg");
+            fileChooser.setFileFilter(filter);
+            int rVal = fileChooser.showSaveDialog(null);
+            if (rVal == JFileChooser.APPROVE_OPTION) {
+                File fileToSave = fileChooser.getSelectedFile();
+                // Append .ddg extension if necessary
+                if (!fileToSave.getAbsolutePath().endsWith(".ddg")) {
+                    fileToSave = new File(fileToSave.getAbsolutePath() + ".ddg");
+                }
+
+                try (FileOutputStream fileOut = new FileOutputStream(fileToSave);
+                     ObjectOutputStream objectOut = new ObjectOutputStream(fileOut)) {
+
+                    objectOut.writeObject(container);
+                    log.debug("[FILE] Object serialized and saved to file.");
+
+                } catch (IOException ex) {
+                    throw new RuntimeException(ex);
+                }
+
+                reEnableComponentsWhenCancel();
+                firstInitialization = true;
+                startDigging.setText("Start Digging");
+                cancelDigging.setVisible(false);
+                saveDigging.setVisible(false);
+            }
         });
         saveDigging.setVisible(false);
+
+        loadDigging = new JButton("Load Digging");
+        loadDigging.setMaximumSize(new Dimension(600, loadDigging.getPreferredSize().height));
+        loadDigging.setMinimumSize(new Dimension(600, loadDigging.getPreferredSize().height));
+        loadDigging.addActionListener(e -> {
+            JFileChooser fileChooser = new JFileChooser();
+            int rVal = fileChooser.showOpenDialog(null);
+            if (rVal == JFileChooser.APPROVE_OPTION) {
+                File file = fileChooser.getSelectedFile();
+
+                try (FileInputStream fileIn = new FileInputStream(file);
+                     ObjectInputStream objectIn = new ObjectInputStream(fileIn)) {
+
+                    ApplicationContainer container = (ApplicationContainer) objectIn.readObject();
+
+                    DefaultTreeModel treeModel = (DefaultTreeModel) tree.getModel();
+                    treeModel.setRoot(container.getRegularTreeRoot());
+                    treeModel.reload();
+
+                    followRedirect.setSelected(container.isFollowRedirect());
+                    if (container.isFollowRedirect()) {
+                        DefaultTreeModel redirectedTreeModel = (DefaultTreeModel) redirectTree.getModel();
+                        redirectedTreeModel.setRoot(container.getRedirectTreeRoot());
+                        redirectedTreeModel.reload();
+
+                        seeRedirectTree.setVisible(true);
+                    }
+
+                    responseCodes.setText(StringUtils.join(container.getResponseCodes(), ","));
+
+                    threadNumSlider.setValue(container.getThreadNum());
+
+                    depthSlider.setValue(container.getDirDepth());
+
+                    DefaultListModel<String> entries = new DefaultListModel<>();
+                    entries.addAll(container.getDirList());
+                    dirsAndFilesList.setModel(entries);
+
+                    fileExtensionsTextField.setText(StringUtils.join(container.getFileExList(), ","));
+
+                    DefaultMutableTreeNode root = (DefaultMutableTreeNode) treeModel.getRoot();
+                    if (root.getUserObject() != null)
+                        urlTextField.setText(((DiggerNode) root.getUserObject()).getUrl());
+
+                    disableComponentsWhenStart();
+
+                    startDigging.setText("Continue Digging");
+                    cancelDigging.setVisible(true);
+                    saveDigging.setVisible(true);
+                } catch (IOException | ClassNotFoundException ex) {
+                    throw new RuntimeException(ex);
+                }
+            }
+        });
 
         progressBar = new JProgressBar(0, 100);
         progressBar.setMaximumSize(new Dimension(600, progressBar.getPreferredSize().height));
@@ -446,13 +556,14 @@ public class DirDigger {
                 .threadPool(executorService)
                 .httpClient(httpAsyncClient)
                 .dirList(entryList)
-                .responseCodes(loadWatchedResponseCodes())
+                .responseCodes(UrlUtils.loadWatchedResponseCodes(responseCodes.getText()))
                 .directoryList(dirsAndFilesList)
                 .maxDepth(depthSlider.getValue())
                 .followRedirects(followRedirect.isSelected())
                 .tree(wrappedTree)
                 .progressBar(progressBar)
                 .logger(logging)
+                .save(isDiggingSave, saveThreadList)
                 .build();
         diggerWorker.addPropertyChangeListener(evt -> {
             if ("progress".equals(evt.getPropertyName())) {
@@ -546,7 +657,6 @@ public class DirDigger {
         wrappedTree.setTree(tree);
 
         redirectTree = new JTree();
-//        redirectTree.setVisible(false);
         redirectTree.setRootVisible(false);
         DefaultTreeModel redirectModel = (DefaultTreeModel) redirectTree.getModel();
         DefaultMutableTreeNode redirectRoot = new DefaultMutableTreeNode(new DiggerNode(null, "redirect tree root", UrlUtils.HttpResponseCodeStatus.REDIRECTION));
@@ -624,6 +734,7 @@ public class DirDigger {
 
                                 .addComponent(errorMessage)
                                 .addComponent(startDigging)
+                                .addComponent(loadDigging)
                                 .addGroup(layout.createParallelGroup(GroupLayout.Alignment.TRAILING)
                                         .addGroup(layout.createSequentialGroup()
                                                 .addComponent(cancelDigging)
@@ -719,6 +830,7 @@ public class DirDigger {
 
                                 .addComponent(errorMessage)
                                 .addComponent(startDigging)
+                                .addComponent(loadDigging)
                                 .addGroup(layout.createParallelGroup()
                                         .addComponent(cancelDigging)
                                         .addComponent(saveDigging)
@@ -821,6 +933,7 @@ public class DirDigger {
 
                                 .addComponent(errorMessage)
                                 .addComponent(startDigging)
+                                .addComponent(loadDigging)
                                 .addGroup(layout.createParallelGroup(GroupLayout.Alignment.TRAILING)
                                         .addGroup(layout.createSequentialGroup()
                                                 .addComponent(cancelDigging)
@@ -915,6 +1028,7 @@ public class DirDigger {
 
                                 .addComponent(errorMessage)
                                 .addComponent(startDigging)
+                                .addComponent(loadDigging)
                                 .addGroup(layout.createParallelGroup()
                                         .addComponent(cancelDigging)
                                         .addComponent(saveDigging)
@@ -996,55 +1110,10 @@ public class DirDigger {
                         .setConnectionManager(connManager)
 //         	            .setDefaultCookieStore(cookieStore)
 //         	            .setDefaultCredentialsProvider(credentialsProvider)
-         	            .setProxy(loadProxy(proxyAndPort.getText()))
+         	            .setProxy(UrlUtils.loadProxy(proxyAndPort.getText()))
          	            .setDefaultRequestConfig(defaultRequestConfig)
                         .setRedirectStrategy(new CustomRedirectStrategy(scheme, hostname, wrappedTree))
          	            .build();
-    }
-
-    private HttpHost loadProxy(String proxyAndPort) {
-        String[] parts = proxyAndPort.split(":");
-
-        if (!proxyAndPort.isEmpty() && parts.length == 1) {
-            try {
-                InetAddress address = InetAddress.getByName(parts[0]);
-                return new HttpHost(address, 0);
-            } catch (UnknownHostException e) {
-                log.error("Unknown Host: {}", e.getMessage());
-                return null;
-            }
-        } else if (parts.length == 2) {
-            try {
-                InetAddress address = InetAddress.getByName(parts[0]);
-                int port = Integer.parseInt(parts[1]);
-                return new HttpHost(address, port);
-            } catch (UnknownHostException e) {
-                log.error("Unknown Host: {}", e.getMessage());
-                return null;
-            } catch (NumberFormatException e) {
-                log.error("Unknown Port: {}", e.getMessage());
-                return null;
-            }
-        }
-
-        return null;
-    }
-
-    private List<Integer> loadWatchedResponseCodes() {
-        List<String> inputs = List.of(responseCodes.getText()
-                                        .split(
-                                                responseCodes.getText().contains(",") ? "," : " "
-                                        ));
-        List<Integer> result = new ArrayList<>();
-        try {
-            for (String input: inputs) {
-                result.add(Integer.parseInt(input.trim()));
-            }
-        } catch (NumberFormatException e) {
-            log.warn("Error in response codes list: {}", e.getMessage());
-        }
-
-        return result.isEmpty() ? List.of(200, 204, 301, 302, 307, 403) : result;
     }
 
     private void loadTestDirFile() {
@@ -1074,6 +1143,7 @@ public class DirDigger {
         clearDirList.setEnabled(false);
         browseFiles.setEnabled(false);
         addEntryButton.setEnabled(false);
+        loadDigging.setEnabled(false);
 
         panel.revalidate();
         panel.repaint();
@@ -1086,6 +1156,7 @@ public class DirDigger {
         clearDirList.setEnabled(true);
         browseFiles.setEnabled(true);
         addEntryButton.setEnabled(true);
+        loadDigging.setEnabled(true);
 
         panel.revalidate();
         panel.repaint();

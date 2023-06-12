@@ -1,16 +1,19 @@
 package core;
 
-import burp.api.montoya.http.message.HttpRequestResponse;
 import utils.UrlUtils;
 
 import javax.swing.tree.DefaultMutableTreeNode;
+import java.io.Serial;
+import java.io.Serializable;
 
-public class DiggerNode {
+public class DiggerNode implements Serializable {
+
+    @Serial
+    private static final long serialVersionUID = 1L;
 
     private DefaultMutableTreeNode parent;
     private String url;
     private UrlUtils.HttpResponseCodeStatus responseStatus;
-    private HttpRequestResponse httpRequestResponse;
 
     public DiggerNode(DefaultMutableTreeNode parent, String url, UrlUtils.HttpResponseCodeStatus responseStatus) {
         this.parent = parent;
