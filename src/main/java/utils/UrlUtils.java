@@ -1,14 +1,18 @@
 package utils;
 
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.net.URL;
+import org.apache.http.HttpHost;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.net.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class UrlUtils {
+
+    private static final Logger log = LoggerFactory.getLogger(UrlUtils.class);
 
     private static final String DIRECTORY_PATH_SEPARATOR = "/";
 
@@ -77,5 +81,50 @@ public final class UrlUtils {
                 uri.getPath(),
                 null, // Ignore the query part of the input url
                 uri.getFragment()).toString();
+    }
+
+    public static HttpHost loadProxy(String proxyAndPort) {
+        String[] parts = proxyAndPort.split(":");
+
+        if (!proxyAndPort.isEmpty() && parts.length == 1) {
+            try {
+                InetAddress address = InetAddress.getByName(parts[0]);
+                return new HttpHost(address, 0);
+            } catch (UnknownHostException e) {
+                log.error("Unknown Host: {}", e.getMessage());
+                return null;
+            }
+        } else if (parts.length == 2) {
+            try {
+                InetAddress address = InetAddress.getByName(parts[0]);
+                int port = Integer.parseInt(parts[1]);
+                return new HttpHost(address, port);
+            } catch (UnknownHostException e) {
+                log.error("Unknown Host: {}", e.getMessage());
+                return null;
+            } catch (NumberFormatException e) {
+                log.error("Unknown Port: {}", e.getMessage());
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    public static List<Integer> loadWatchedResponseCodes(String i) {
+        List<String> inputs = List.of(i
+                .split(
+                        i.contains(",") ? "," : " "
+                ));
+        List<Integer> result = new ArrayList<>();
+        try {
+            for (String input: inputs) {
+                result.add(Integer.parseInt(input.trim()));
+            }
+        } catch (NumberFormatException e) {
+            log.warn("Error in response codes list: {}", e.getMessage());
+        }
+
+        return result.isEmpty() ? List.of(200, 204, 301, 302, 307, 403) : result;
     }
 }
