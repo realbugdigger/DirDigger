@@ -13,10 +13,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import utils.CustomRedirectStrategy;
 import utils.Globals;
+import utils.JTreeUtils;
 import utils.UrlUtils;
 
 import javax.imageio.ImageIO;
 import javax.swing.*;
+import javax.swing.Timer;
 import javax.swing.border.LineBorder;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.tree.DefaultMutableTreeNode;
@@ -59,8 +61,10 @@ public class DirDigger {
     private JButton cancelDigging;
     private JButton saveDigging;
     private AtomicBoolean isDiggingSave = new AtomicBoolean(false);
+    private AtomicBoolean isKillSave = new AtomicBoolean(false);
     private final List<ThreadStateInfo> saveThreadList = Collections.synchronizedList(new ArrayList<>());
     private JButton loadDigging;
+    private boolean loadedDigging = false;
     private JProgressBar progressBar;
 
     private JLabel sliderDepthLabel;
@@ -329,11 +333,13 @@ public class DirDigger {
                 saveDigging.setVisible(false);
 
                 log.debug("Continuing digging with num of tasks: {}", tasks.size());
-                initThreadPoolV2(tasks.size());
+                if (!loadedDigging || executorService == null)
+                    initThreadPoolV2(tasks.size());
                 for (Runnable task : tasks) {
                     executorService.submit(task);
                 }
                 executorService.resume();
+                startDigging.setText("Stop Digging");
             }
 
             if (!isDigging && isValidToStart()) {
@@ -345,6 +351,7 @@ public class DirDigger {
             } else if (isDigging) { // stop digging
                 tasks = executorService.shutdownNow();
                 isDigging = false;
+                isDiggingSave.set(true);
                 log.debug("[ExecutorService STOP] Thread pool should stop threads from executing");
                 // show cancel and save buttons
                 startDigging.setText("Continue Digging");
@@ -362,6 +369,7 @@ public class DirDigger {
         cancelDigging = new JButton("Cancel Digging");
         cancelDigging.addActionListener(e -> {
             executorService.shutdownNow();
+            tasks = new ArrayList<>();
             progressBar.setValue(0);
             progressBar.setVisible(false);
             dirsAndFilesList.setModel(new DefaultListModel<>());
@@ -371,12 +379,17 @@ public class DirDigger {
             startDigging.setText("Start Digging");
             cancelDigging.setVisible(false);
             saveDigging.setVisible(false);
+            urlTextField.setText("");
+            JTreeUtils.setDefaultRoot(tree);
+            JTreeUtils.setDefaultRoot(redirectTree);
+            tree.setVisible(false);
+            redirectTree.setVisible(false);
         });
         cancelDigging.setVisible(false);
 
         saveDigging = new JButton("Save Digging");
         saveDigging.addActionListener(e -> {
-            isDiggingSave.set(true);
+            isKillSave.set(true);
             ApplicationContainer container = new ApplicationContainer();
             container.setDirList(entryList);
 
@@ -397,7 +410,7 @@ public class DirDigger {
 
             // show dialog for saving file (open in Future????)
             try {
-                Thread.sleep(3000);
+                Thread.sleep(2000);
             } catch (InterruptedException ex) {
                 throw new RuntimeException(ex);
             }
@@ -431,10 +444,17 @@ public class DirDigger {
                 }
 
                 reEnableComponentsWhenCancel();
+                progressBar.setValue(0);
+                progressBar.setVisible(false);
                 firstInitialization = true;
                 startDigging.setText("Start Digging");
                 cancelDigging.setVisible(false);
                 saveDigging.setVisible(false);
+                urlTextField.setText("");
+                JTreeUtils.setDefaultRoot(tree);
+                JTreeUtils.setDefaultRoot(redirectTree);
+                tree.setVisible(false);
+                redirectTree.setVisible(false);
             }
         });
         saveDigging.setVisible(false);
@@ -452,6 +472,8 @@ public class DirDigger {
                      ObjectInputStream objectIn = new ObjectInputStream(fileIn)) {
 
                     ApplicationContainer container = (ApplicationContainer) objectIn.readObject();
+
+                    log.debug("Loaded ApplicationContainer\n\t\t{}", container);
 
                     DefaultTreeModel treeModel = (DefaultTreeModel) tree.getModel();
                     treeModel.setRoot(container.getRegularTreeRoot());
@@ -478,15 +500,19 @@ public class DirDigger {
 
                     fileExtensionsTextField.setText(StringUtils.join(container.getFileExList(), ","));
 
+                    disableComponentsWhenStart();
+
+                    tasks = loadThreadPool(container);
+
                     DefaultMutableTreeNode root = (DefaultMutableTreeNode) treeModel.getRoot();
                     if (root.getUserObject() != null)
                         urlTextField.setText(((DiggerNode) root.getUserObject()).getUrl());
 
-                    disableComponentsWhenStart();
-
                     startDigging.setText("Continue Digging");
                     cancelDigging.setVisible(true);
                     saveDigging.setVisible(true);
+                    loadedDigging = true;
+//                    firstInitialization = false;
                 } catch (IOException | ClassNotFoundException ex) {
                     throw new RuntimeException(ex);
                 }
@@ -499,6 +525,48 @@ public class DirDigger {
         progressBar.setValue(0);
         progressBar.setStringPainted(true);
         progressBar.setVisible(false);
+        Timer timer = new Timer(100, e -> {
+            if (progressBar.getValue() >= progressBar.getMaximum()) {
+                log.info("Finished all tasks!!!");
+                progressBar.setValue(0);
+                progressBar.setVisible(false);
+//                dirsAndFilesList.setModel(new DefaultListModel<>());
+//                reEnableComponentsWhenCancel();
+//                urlTextField.setText("");
+//                JTreeUtils.setDefaultRoot(tree);
+//                JTreeUtils.setDefaultRoot(redirectTree);
+//                tree.setVisible(false);
+//                redirectTree.setVisible(false);
+                startDigging.setText("Start Digging");
+                firstInitialization = true;
+            }
+        });
+        timer.start();
+    }
+
+    private List<Runnable> loadThreadPool(ApplicationContainer container) {
+        List<Runnable> tasks = new ArrayList<>();
+
+        for (ThreadStateInfo t: container.getThreads()) {
+            DiggerWorker diggerWorker = new DiggerWorker.DiggerWorkerBuilder(t.getUrl(), t.getCurrentDepth())
+                    .fileExtensions(container.getFileExList())
+                    .threadPool(executorService)
+                    .httpClient(httpAsyncClient)
+                    .dirList(container.getDirList())
+                    .responseCodes(container.getResponseCodes())
+                    .directoryList(dirsAndFilesList)
+                    .maxDepth(container.getDirDepth())
+                    .iterator(t.getIterator())
+                    .followRedirects(container.isFollowRedirect())
+                    .tree(wrappedTree)
+                    .progressBar(progressBar)
+                    .logger(logging)
+                    .save(isDiggingSave, saveThreadList, isKillSave)
+                    .build();
+
+            tasks.add(diggerWorker);
+        }
+        return tasks;
     }
 
     private void firstInit() {
@@ -563,7 +631,7 @@ public class DirDigger {
                 .tree(wrappedTree)
                 .progressBar(progressBar)
                 .logger(logging)
-                .save(isDiggingSave, saveThreadList)
+                .save(isDiggingSave, saveThreadList, isKillSave)
                 .build();
         diggerWorker.addPropertyChangeListener(evt -> {
             if ("progress".equals(evt.getPropertyName())) {
@@ -1144,6 +1212,7 @@ public class DirDigger {
         browseFiles.setEnabled(false);
         addEntryButton.setEnabled(false);
         loadDigging.setEnabled(false);
+        urlTextField.setText("");
 
         panel.revalidate();
         panel.repaint();

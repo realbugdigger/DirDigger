@@ -112,4 +112,19 @@ public class ApplicationContainer implements Serializable {
     public void setRedirectTreeRoot(DefaultMutableTreeNode redirectTreeRoot) {
         this.redirectTreeRoot = redirectTreeRoot;
     }
+
+    @Override
+    public String toString() {
+        return "ApplicationContainer{" +
+                "dirList size = " + dirList.size() +
+                ", fileExList size = " + fileExList.size() +
+                ", threads size = " + threads.size() +
+                ", progressBarValue=" + progressBarValue +
+                ", dirDepth=" + dirDepth +
+                ", threadNum=" + threadNum +
+                ", proxy=" + proxy.toString() +
+                ", responseCodes size =" + responseCodes.size() +
+                ", followRedirect=" + followRedirect +
+                '}';
+    }
 }

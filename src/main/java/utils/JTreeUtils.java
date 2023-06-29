@@ -217,4 +217,9 @@ public final class JTreeUtils {
         }
         return true;
     }
+
+    public static synchronized void setDefaultRoot(JTree tree) {
+        DefaultTreeModel treeModel = (DefaultTreeModel) tree.getModel();
+        treeModel.setRoot(new DefaultMutableTreeNode(new DiggerNode(null, "", UrlUtils.HttpResponseCodeStatus.SUCCESS)));
+    }
 }
