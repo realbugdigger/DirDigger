@@ -2,7 +2,7 @@
 
 ![DirDigger](https://raw.githubusercontent.com/realbugdigger/DirDigger/main/DD_MagGlass.svg)
 
-DirDigger is tool used for directory digging/busting and it provides few more features than its alternatives.
+DirDigger is tool used for directory digging/busting and currently it provides few more features than its alternatives.
 It can be used for scanning web apps that have bug bounty programs as well as for ctfs.
 DirDigger was started as portfolio project as Burp extension but after were added features 
 DirDigger current features:
@@ -38,3 +38,7 @@ For those who don't want to use this as burp extension but as java app follow th
 
 ***
 
+If using as burp extension follow these steps
+1. clone git repository
+2. mvn clean install
+3. add dirdigger-1.0-SNAPSHOT.jar not original-dirdigger-1.0-SNAPSHOT.jar as original does not contain dependencies
