@@ -41,4 +41,4 @@ For those who don't want to use this as burp extension but as java app follow th
 If using as burp extension follow these steps
 1. clone git repository
 2. mvn clean install
-3. add dirdigger-1.0-SNAPSHOT.jar not original-dirdigger-1.0-SNAPSHOT.jar as original does not contain dependencies
+3. add `dirdigger-1.0-SNAPSHOT.jar` not `original-dirdigger-1.0-SNAPSHOT.jar` as original does not contain dependencies
