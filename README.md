@@ -27,6 +27,7 @@ Interesting things that can be added:
     - there can exist two-way sync also -> to initialize tree in DirDigger extension based on site map and start working on that
 - add option to create contexts based on target (Burp targets)
 - create cli version and modularize the project
+- save threads and application state in some PostgreSQL db (can be useful for teams that are performing application security testing)
 
 ***
 
