@@ -6,11 +6,7 @@ import org.apache.http.client.config.CookieSpecs;
 import org.apache.http.impl.nio.client.HttpAsyncClients;
 import org.apache.http.impl.nio.conn.PoolingNHttpClientConnectionManager;
 import org.apache.http.impl.nio.reactor.DefaultConnectingIOReactor;
-import org.apache.http.impl.nio.reactor.IOReactorConfig;
-import org.apache.http.nio.reactor.ConnectingIOReactor;
 import org.apache.http.nio.reactor.IOReactorException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import utils.CustomRedirectStrategy;
 import utils.Globals;
 import utils.JTreeUtils;
@@ -33,8 +29,6 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class DirDigger {
-
-    private static final Logger log = LoggerFactory.getLogger(DiggerWorker.class);
 
     private final Logging logging;
 
@@ -160,7 +154,7 @@ public class DirDigger {
         executorService = new PausableThreadPoolExecutor(threadNumSlider.getValue(), threadNumSlider.getValue(),
                 10L, TimeUnit.MINUTES,
                 new LinkedBlockingQueue<>(), threadFactory,
-                20);
+                20, logging);
     }
 
     private void initThreadPoolV2(int size) {
@@ -181,7 +175,7 @@ public class DirDigger {
         executorService = new PausableThreadPoolExecutor(threadNumSlider.getValue(), threadNumSlider.getValue(),
                 10L, TimeUnit.MINUTES,
                 new LinkedBlockingQueue<>(), threadFactory,
-                20);
+                20, logging);
     }
 
     public JPanel getFrame(){
@@ -206,8 +200,6 @@ public class DirDigger {
         initSeparators();
 
         initTree();
-
-        loadTestDirFile();
 
         positionUIComponents();
     }
@@ -332,7 +324,7 @@ public class DirDigger {
                 cancelDigging.setVisible(false);
                 saveDigging.setVisible(false);
 
-                log.debug("Continuing digging with num of tasks: {}", tasks.size());
+                logging.logToOutput("Continuing digging with num of tasks: " + tasks.size());
                 if (!loadedDigging || executorService == null)
                     initThreadPoolV2(tasks.size());
                 for (Runnable task : tasks) {
@@ -352,7 +344,7 @@ public class DirDigger {
                 tasks = executorService.shutdownNow();
                 isDigging = false;
                 isDiggingSave.set(true);
-                log.debug("[ExecutorService STOP] Thread pool should stop threads from executing");
+                logging.logToOutput("[ExecutorService STOP] Thread pool should stop threads from executing");
                 // show cancel and save buttons
                 startDigging.setText("Continue Digging");
                 cancelDigging.setVisible(true);
@@ -437,7 +429,7 @@ public class DirDigger {
                      ObjectOutputStream objectOut = new ObjectOutputStream(fileOut)) {
 
                     objectOut.writeObject(container);
-                    log.debug("[FILE] Object serialized and saved to file.");
+                    logging.logToOutput("[FILE] Object serialized and saved to file.");
 
                 } catch (IOException ex) {
                     throw new RuntimeException(ex);
@@ -473,7 +465,7 @@ public class DirDigger {
 
                     ApplicationContainer container = (ApplicationContainer) objectIn.readObject();
 
-                    log.debug("Loaded ApplicationContainer\n\t\t{}", container);
+                    logging.logToOutput("Loaded ApplicationContainer\n\t\t" + container);
 
                     DefaultTreeModel treeModel = (DefaultTreeModel) tree.getModel();
                     treeModel.setRoot(container.getRegularTreeRoot());
@@ -527,7 +519,7 @@ public class DirDigger {
         progressBar.setVisible(false);
         Timer timer = new Timer(100, e -> {
             if (progressBar.getValue() >= progressBar.getMaximum()) {
-                log.info("Finished all tasks!!!");
+                logging.logToOutput("Finished all tasks!!!");
                 progressBar.setValue(0);
                 progressBar.setVisible(false);
 //                dirsAndFilesList.setModel(new DefaultListModel<>());
@@ -570,6 +562,7 @@ public class DirDigger {
     }
 
     private void firstInit() {
+        logging.logToOutput("First init???");
         firstInitialization = false;
         try {
             String scheme = UrlUtils.getScheme(urlTextField.getText());
@@ -577,6 +570,7 @@ public class DirDigger {
             if (hostname.endsWith("/"))
                 hostname = hostname.substring(0, hostname.length() - 1);
             initHttpClient(scheme, hostname);
+//            httpAsyncClient = HttpAsyncClients.createDefault();
         } catch (Exception ex) {
             System.out.println(ex.getMessage());
         }
@@ -665,11 +659,11 @@ public class DirDigger {
         BufferedImage iconClientError = null;
         BufferedImage iconServerError = null;
         try {
-            iconInfo = ImageIO.read((DirDigger.class.getResource("../images/info-circle.png")));
-            iconSuccess = ImageIO.read((DirDigger.class.getResource("../images/success-circle.png")));
-            iconRedirect = ImageIO.read((DirDigger.class.getResource("../images/redirect-circle.png")));
-            iconClientError = ImageIO.read((DirDigger.class.getResource("../images/client_error-circle.png")));
-            iconServerError = ImageIO.read((DirDigger.class.getResource("../images/server_error-circle.png")));
+            iconInfo = ImageIO.read((Objects.requireNonNull(DirDigger.class.getResource("/images/info-circle.png"))));
+            iconSuccess = ImageIO.read((Objects.requireNonNull(DirDigger.class.getResource("/images/success-circle.png"))));
+            iconRedirect = ImageIO.read((Objects.requireNonNull(DirDigger.class.getResource("/images/redirect-circle.png"))));
+            iconClientError = ImageIO.read((Objects.requireNonNull(DirDigger.class.getResource("/images/client_error-circle.png"))));
+            iconServerError = ImageIO.read((Objects.requireNonNull(DirDigger.class.getResource("/images/server_error-circle.png"))));
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -1141,7 +1135,7 @@ public class DirDigger {
 
     private void initHttpClient(String scheme, String hostname) throws IOReactorException {
         // Create I/O reactor configuration
-        IOReactorConfig ioReactorConfig = IOReactorConfig.custom()
+        org.apache.http.impl.nio.reactor.IOReactorConfig ioReactorConfig = org.apache.http.impl.nio.reactor.IOReactorConfig.custom()
                 .setIoThreadCount(Runtime.getRuntime().availableProcessors())
                 // Connection Timeout – the time to establish the connection with the remote host
                 .setConnectTimeout(30000)
@@ -1150,7 +1144,7 @@ public class DirDigger {
                 .build();
 
         // Create a custom I/O reactor
-        ConnectingIOReactor ioReactor = new DefaultConnectingIOReactor(ioReactorConfig);
+        org.apache.http.nio.reactor.ConnectingIOReactor ioReactor = new DefaultConnectingIOReactor(ioReactorConfig);
 
         // Create a connection manager with custom configuration.
         PoolingNHttpClientConnectionManager connManager = new PoolingNHttpClientConnectionManager(ioReactor);
@@ -1180,28 +1174,8 @@ public class DirDigger {
 //         	            .setDefaultCredentialsProvider(credentialsProvider)
          	            .setProxy(UrlUtils.loadProxy(proxyAndPort.getText()))
          	            .setDefaultRequestConfig(defaultRequestConfig)
-                        .setRedirectStrategy(new CustomRedirectStrategy(scheme, hostname, wrappedTree))
+                        .setRedirectStrategy(new CustomRedirectStrategy(scheme, hostname, wrappedTree, logging))
          	            .build();
-    }
-
-    private void loadTestDirFile() {
-        File file = new File("/home/marko/Desktop/top_100_dirs.txt");
-
-        DefaultListModel<String> listModel = (DefaultListModel<String>) dirsAndFilesList.getModel();
-            try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
-                String line = reader.readLine();
-                while (line != null) {
-                    if (!line.startsWith("#") && !line.equals("")) {
-                        String entry = line.trim();
-                        listModel.addElement(entry);
-                        entryList.add(entry);
-                    }
-                    line = reader.readLine();
-                }
-            } catch (IOException exception) {
-                exception.printStackTrace();
-            }
-        dirsAndFilesList.setModel(listModel);
     }
 
     private void disableComponentsWhenStart() {

@@ -3,8 +3,6 @@ package core;
 import burp.api.montoya.logging.Logging;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.http.HttpResponse;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import utils.JTreeUtils;
 import utils.UrlUtils;
 
@@ -16,8 +14,6 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class DiggerWorker extends SwingWorker<String, Boolean> {
-
-    private static final Logger log = LoggerFactory.getLogger(DiggerWorker.class);
 
     private Logging logging;
 
@@ -104,9 +100,9 @@ public class DiggerWorker extends SwingWorker<String, Boolean> {
                     tsi.setIterator(i);
                     tsi.setUrl(url);
                     tsi.setCurrentDepth(currentDepth);
-                    log.debug("Saving thread [{}] -- {}", Thread.currentThread().getName(), tsi);
+                    logging.logToOutput("Saving thread [" + Thread.currentThread().getName() + "] -- " + tsi);
                     saveThreadList.add(tsi);
-                    log.debug("New saveThreadList size is {}", saveThreadList.size());
+                    logging.logToOutput("New saveThreadList size is " + saveThreadList.size());
                 }
                 if (isKillSave.get()) {
 
@@ -131,7 +127,7 @@ public class DiggerWorker extends SwingWorker<String, Boolean> {
 
                         // possible rate limiter in place?
                         if (responseCode == 429 || responseCode == 503) {
-                            log.warn("****** [RATE LIMITER DETECTED] ******");
+                            logging.logToOutput("****** [RATE LIMITER DETECTED] ******");
                             try {
                                 if (enabledTimeoutBetweenRequests)
                                     timeoutBetweenRequests += 300;
@@ -142,22 +138,22 @@ public class DiggerWorker extends SwingWorker<String, Boolean> {
 
                                 try {
                                     if (response.getFirstHeader("Retry-After").getValue() != null) {
-                                        log.warn("Retry-After header value = {}", response.getFirstHeader("Retry-After"));
+                                        logging.logToOutput("Retry-After header value = " + response.getFirstHeader("Retry-After"));
                                         timeoutBetweenRequests = Integer.parseInt(response.getFirstHeader("Retry-After").getValue());
                                     }
                                 } catch (Exception e) {
                                     // possibly there was a date inside header instead of num of milliseconds
-                                    log.error("[Retry-After] Unexpected exception: {}", e.getMessage());
+                                    logging.logToOutput("[Retry-After] Unexpected exception: " + e.getMessage());
                                 }
 
-                                log.warn("Going to sleep for: {}", timeoutBetweenRequests);
+                                logging.logToOutput("Going to sleep for: " + timeoutBetweenRequests);
                                 Thread.sleep(timeoutBetweenRequests);
                                 executorService.resume();
                             } catch (InterruptedException e) {
-                                log.warn("Interrupted rate limiter sleep!!!\n\t\t{}", e.getMessage());
+                                logging.logToOutput("Interrupted rate limiter sleep!!!\n\t\t" + e.getMessage());
                             }
                         } else if (watchedResponseCodes.contains(responseCode) && currentDepth < maxDepth) {
-                            log.debug("{} =========> {}", potentialHit, responseCode);
+                            logging.logToOutput(potentialHit + " =========> " + responseCode);
 
                             DefaultMutableTreeNode parent = JTreeUtils.findParentNode(potentialHit, root);
                             DiggerNode node = new DiggerNode(parent, potentialHit, UrlUtils.getResponseStatus(responseCode));
@@ -176,13 +172,13 @@ public class DiggerWorker extends SwingWorker<String, Boolean> {
                                     DiggerNode updatedDiggerNode = (DiggerNode) treeNode.getUserObject();
 
                                     if (updatedDiggerNode.getResponseStatus() != UrlUtils.HttpResponseCodeStatus.SUCCESS && node.getResponseStatus() == UrlUtils.HttpResponseCodeStatus.SUCCESS) {
-                                        log.debug("Updating {} http response status from {} to {}", potentialHit, updatedDiggerNode.getResponseStatus(), node.getResponseStatus());
+                                        logging.logToOutput("Updating " + potentialHit + " http response status from " + updatedDiggerNode.getResponseStatus() + " to " + node.getResponseStatus());
 
                                         updatedDiggerNode.setResponseStatus(UrlUtils.HttpResponseCodeStatus.SUCCESS);
                                         treeNode.setUserObject(updatedDiggerNode);
                                     }
                                 } else {
-                                    log.debug("Adding {} to regular tree (looks like there wasn't any redirect)", potentialHit);
+                                    logging.logToOutput("Adding " + potentialHit + " to regular tree (looks like there wasn't any redirect)");
                                     JTreeUtils.addNode(node, tree.getTree());
                                 }
                             }
@@ -212,21 +208,21 @@ public class DiggerWorker extends SwingWorker<String, Boolean> {
 
                     @Override
                     public void failed(Exception ex) {
-                        log.warn("Exception from failed() http client: {}", ex.getMessage());
-                        log.warn("****** [POSSIBLE RATE LIMITER DETECTED] ******");
+                        logging.logToOutput("Exception from failed() http client: " + ex.getMessage());
+                        logging.logToOutput("****** [POSSIBLE RATE LIMITER DETECTED] ******");
                         try {
                             executorService.pause();
                             Thread.sleep(10000);
                             executorService.resume();
                         } catch (InterruptedException e) {
-                            log.warn("failed() Interrupted rate limiter sleep!!!\n\t\t{}", e.getMessage());
+                            logging.logToOutput("failed() Interrupted rate limiter sleep!!!\n\t\t" + e.getMessage());
                             throw new RuntimeException(e);
                         }
                     }
 
                     @Override
                     public void cancelled() {
-                        log.warn("Http request cancelled for some reason {}", potentialHit);
+                        logging.logToOutput("Http request cancelled for some reason " + potentialHit);
                     }
                 });
                 future.get();
@@ -245,7 +241,7 @@ public class DiggerWorker extends SwingWorker<String, Boolean> {
 
                                 // possible rate limiter in place?
                                 if (responseCode == 429 || responseCode == 503) {
-                                    log.warn("****** [RATE LIMITER DETECTED] ******");
+                                    logging.logToOutput("****** [RATE LIMITER DETECTED] ******");
                                     try {
                                         if (enabledTimeoutBetweenRequests)
                                             timeoutBetweenRequests += 300;
@@ -259,17 +255,17 @@ public class DiggerWorker extends SwingWorker<String, Boolean> {
                                                 timeoutBetweenRequests = Integer.parseInt(response.getFirstHeader("Retry-After").getValue());
                                             }
                                         } catch (Exception e) {
-                                            log.error("Unexpected exception: {}", e.getMessage());
+                                            logging.logToOutput("Unexpected exception: " + e.getMessage());
                                         }
 
-                                        log.warn("Going to sleep for: {}", timeoutBetweenRequests);
+                                        logging.logToOutput("Going to sleep for: " + timeoutBetweenRequests);
                                         Thread.sleep(timeoutBetweenRequests);
                                         executorService.resume();
                                     } catch (InterruptedException e) {
-                                        log.warn("Interrupted rate limiter sleep!!!\n{}", e.getMessage());
+                                        logging.logToOutput("Interrupted rate limiter sleep!!!\n" + e.getMessage());
                                     }
                                 } else if (watchedResponseCodes.contains(responseCode) && currentDepth < maxDepth) {
-                                    log.debug("{} =========> {}", potentialWithExtension, responseCode);
+                                    logging.logToOutput(potentialWithExtension + " =========> " + responseCode);
 
                                     DefaultMutableTreeNode parent = JTreeUtils.findParentNode(potentialWithExtension, root);
                                     DiggerNode node = new DiggerNode(parent, potentialWithExtension, UrlUtils.getResponseStatus(responseCode));
@@ -288,13 +284,13 @@ public class DiggerWorker extends SwingWorker<String, Boolean> {
                                             DiggerNode updatedDiggerNode = (DiggerNode) treeNode.getUserObject();
 
                                             if (updatedDiggerNode.getResponseStatus() != UrlUtils.HttpResponseCodeStatus.SUCCESS && node.getResponseStatus() == UrlUtils.HttpResponseCodeStatus.SUCCESS) {
-                                                log.debug("Updating {} http response status from {} to {}", potentialWithExtension, updatedDiggerNode.getResponseStatus(), node.getResponseStatus());
+                                                logging.logToOutput("Updating " + potentialWithExtension + " http response status from " + updatedDiggerNode.getResponseStatus() + " to " + node.getResponseStatus());
 
                                                 updatedDiggerNode.setResponseStatus(UrlUtils.HttpResponseCodeStatus.SUCCESS);
                                                 treeNode.setUserObject(updatedDiggerNode);
                                             }
                                         } else {
-                                            log.debug("Adding {} to regular tree (looks like there wasn't any redirect)", potentialWithExtension);
+                                            logging.logToOutput("Adding " + potentialWithExtension + " to regular tree (looks like there wasn't any redirect)");
                                             JTreeUtils.addNode(node, tree.getTree());
                                         }
                                     }
@@ -303,21 +299,21 @@ public class DiggerWorker extends SwingWorker<String, Boolean> {
 
                             @Override
                             public void failed(Exception ex) {
-                                log.warn("Exception from failed() http client: {}", ex.getMessage());
-                                log.warn("****** [POSSIBLE RATE LIMITER DETECTED] ******");
+                                logging.logToOutput("Exception from failed() http client: " + ex.getMessage());
+                                logging.logToOutput("****** [POSSIBLE RATE LIMITER DETECTED] ******");
                                 try {
                                     executorService.pause();
                                     Thread.sleep(10000);
                                     executorService.resume();
                                 } catch (InterruptedException e) {
-                                    log.warn("failed() Interrupted rate limiter sleep!!!\n\t\t{}", e.getMessage());
+                                    logging.logToOutput("failed() Interrupted rate limiter sleep!!!\n\t\t" + e.getMessage());
                                     throw new RuntimeException(e);
                                 }
                             }
 
                             @Override
                             public void cancelled() {
-                                log.warn("Http request cancelled for some reason {}", potentialHit);
+                                logging.logToOutput("Http request cancelled for some reason " + potentialHit);
                             }
                         });
                         extensionFuture.get();
@@ -334,13 +330,13 @@ public class DiggerWorker extends SwingWorker<String, Boolean> {
                 }
             }
         } catch (Exception e) {
-            log.warn("Should this even happen???");
+            logging.logToOutput("Should this even happen???");
             try {
                 executorService.pause();
                 Thread.sleep(10000);
                 executorService.resume();
             } catch (InterruptedException ex) {
-                log.warn("Interrupted rate limiter sleep!!!");
+                logging.logToOutput("Interrupted rate limiter sleep!!!");
                 throw new RuntimeException(ex);
             }
             // let this finally be here for now
@@ -367,9 +363,9 @@ public class DiggerWorker extends SwingWorker<String, Boolean> {
                 else
                     progressBar.setMaximum(progressBar.getMaximum() + dirListGui.getSize());
 
-                log.debug("new maximum {}", progressBar.getMaximum());
+                logging.logToOutput("new maximum " + progressBar.getMaximum());
             } else {
-                log.debug("current value for progressBar {}", progressBar.getValue() + 1);
+                logging.logToOutput("current value for progressBar " + progressBar.getValue() + 1);
                 progressBar.setValue(progressBar.getValue() + 1);
             }
         }
@@ -377,7 +373,7 @@ public class DiggerWorker extends SwingWorker<String, Boolean> {
 
     @Override
     protected void done() {
-        log.debug("[FINISH] One worker thread has finished!!!");
+        logging.logToOutput("[FINISH] One worker thread has finished!!!");
     }
 
     public static class DiggerWorkerBuilder {

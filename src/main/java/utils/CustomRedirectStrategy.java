@@ -1,5 +1,6 @@
 package utils;
 
+import burp.api.montoya.logging.Logging;
 import core.DiggerNode;
 import core.WrappedJTree;
 import org.apache.http.*;
@@ -13,8 +14,6 @@ import org.apache.http.impl.client.RedirectLocations;
 import org.apache.http.protocol.HttpContext;
 import org.apache.http.util.Args;
 import org.apache.http.util.Asserts;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import javax.swing.tree.DefaultMutableTreeNode;
 import java.net.URI;
@@ -22,8 +21,6 @@ import java.net.URISyntaxException;
 import java.util.Arrays;
 
 public class CustomRedirectStrategy implements RedirectStrategy {
-
-    private static final Logger log = LoggerFactory.getLogger(CustomRedirectStrategy.class);
 
     public static final int SC_PERMANENT_REDIRECT = 308;
 
@@ -34,12 +31,14 @@ public class CustomRedirectStrategy implements RedirectStrategy {
             HttpDelete.METHOD_NAME
     };
 
+    private final Logging logging;
     private final String targetUrl;
     private final WrappedJTree tree;
 
-    public CustomRedirectStrategy(String scheme, String hostname, WrappedJTree tree) {
+    public CustomRedirectStrategy(String scheme, String hostname, WrappedJTree tree, Logging logging) {
         targetUrl = scheme + "://" + hostname;
         this.tree = tree;
+        this.logging = logging;
     }
 
     @Override
@@ -76,7 +75,7 @@ public class CustomRedirectStrategy implements RedirectStrategy {
         String redirectedUrl = targetUrl + request.getRequestLine().getUri();
         String redirectedToUrl = locationHeader.getValue();
 
-        log.debug("Location: {}", locationHeader.getValue());
+        logging.logToOutput("Location: " + locationHeader.getValue());
         if (!UrlUtils.getScheme(redirectedToUrl).equals("http") && !UrlUtils.getScheme(redirectedToUrl).equals("https")) {
             if (redirectedToUrl.charAt(0) == '/') {
                 redirectedToUrl = targetUrl + redirectedToUrl;
@@ -84,17 +83,17 @@ public class CustomRedirectStrategy implements RedirectStrategy {
                 redirectedToUrl = targetUrl + "/" + redirectedToUrl;
             }
         }
-        log.debug("[Start of editTree] variable redirectedToUrl ===> {}", redirectedToUrl);
+        logging.logToOutput("[Start of editTree] variable redirectedToUrl ===> " + redirectedToUrl);
 
         // if redirectedToUrl contains params, remove them (there's chance that param values are volatile)
         try {
             redirectedToUrl = UrlUtils.getUrlWithoutParameters(redirectedToUrl);
-            log.debug("[REMOVING PARAMS] From {} ==> {}", locationHeader.getValue(), redirectedToUrl);
+            logging.logToOutput("[REMOVING PARAMS] From " + locationHeader.getValue() + " ==> " + redirectedToUrl);
         } catch (URISyntaxException ex) {
             ex.printStackTrace();
         }
 
-        log.debug("[REDIRECT] {} ===========> {}", redirectedUrl, redirectedToUrl);
+        logging.logToOutput("[REDIRECT] " + redirectedUrl + " ===========> " + redirectedToUrl);
 
         DefaultMutableTreeNode treeRoot = (DefaultMutableTreeNode) tree.getTree().getModel().getRoot();
         DefaultMutableTreeNode redirectedTreeRoot = (DefaultMutableTreeNode) tree.getRedirectTree().getModel().getRoot();
@@ -103,33 +102,33 @@ public class CustomRedirectStrategy implements RedirectStrategy {
         //                              In this case http://example.org/directoryTwo will be at root level of redirectTree
         if (JTreeUtils.containsAtRootLevel(redirectedUrl, redirectedTreeRoot) && UrlUtils.notEqualUrl(redirectedUrl, redirectedToUrl)) {
             DefaultMutableTreeNode redirectedNode = JTreeUtils.getNode(redirectedUrl, redirectedTreeRoot);
-            log.debug("{} is present in redirect tree at root level, removing it from parent {}", redirectedUrl, redirectedNode.getUserObject());
+            logging.logToOutput(redirectedUrl + " is present in redirect tree at root level, removing it from parent " + redirectedNode.getUserObject());
             JTreeUtils.removeChildFromParent(redirectedNode, redirectedTreeRoot);
 
             DefaultMutableTreeNode redirectedNodeParent = JTreeUtils.getNodeV2(redirectedToUrl, redirectedTreeRoot);
             // if redirectedNodeParent is null, create redirectedToUrlNode at redirect tree root level
             if (redirectedNodeParent == null) {
-                log.debug("{} is not present in redirect tree, adding it now as parent for {}", redirectedToUrl, redirectedUrl);
+                logging.logToOutput(redirectedToUrl + " is not present in redirect tree, adding it now as parent for " + redirectedUrl);
                 DiggerNode redirectedDiggerNodeParent = new DiggerNode(redirectedTreeRoot, redirectedToUrl, UrlUtils.HttpResponseCodeStatus.SUCCESS);
                 redirectedNodeParent = new DefaultMutableTreeNode(redirectedDiggerNodeParent);
 
                 JTreeUtils.addChildToParent(redirectedNode, redirectedNodeParent);
                 JTreeUtils.addChildToParent(redirectedNodeParent, redirectedTreeRoot);
             } else {
-                log.debug("{} is present in redirect tree, modifying it now as parent for {}", redirectedToUrl, redirectedUrl);
+                logging.logToOutput(redirectedToUrl + " is present in redirect tree, modifying it now as parent for " + redirectedUrl);
                 JTreeUtils.addChildToParent(redirectedNode, redirectedNodeParent);
             }
         }
         // if redirected url is not present in redirected tree and redirected url is not equal to destination url, add it
         else if (JTreeUtils.notContained(redirectedUrl, redirectedTreeRoot) && UrlUtils.notEqualUrl(redirectedUrl, redirectedToUrl)) {
-            log.debug("{} is not present in redirect tree, adding it now ...", redirectedUrl);
+            logging.logToOutput(redirectedUrl + " is not present in redirect tree, adding it now ...");
 
             // maybe parent was there before child
             DefaultMutableTreeNode redirectedNodeParent = JTreeUtils.getNodeV2(redirectedToUrl, redirectedTreeRoot);
             DiggerNode redirectedDiggerNode = new DiggerNode(redirectedNodeParent, redirectedUrl, UrlUtils.getResponseStatus(response.getStatusLine().getStatusCode()));
             // if redirectedNodeParent is null (parent wasn't there before child), create redirectedToUrlNode at redirect tree root level
             if (redirectedNodeParent == null) {
-                log.debug("{} is not present in redirect tree, adding it now as parent for {}", redirectedToUrl, redirectedUrl);
+                logging.logToOutput(redirectedToUrl + " is not present in redirect tree, adding it now as parent for " + redirectedUrl);
                 DiggerNode redirectedDiggerNodeParent = new DiggerNode(redirectedTreeRoot, redirectedToUrl, UrlUtils.HttpResponseCodeStatus.SUCCESS);
                 redirectedNodeParent = new DefaultMutableTreeNode(redirectedDiggerNodeParent);
 
@@ -137,21 +136,21 @@ public class CustomRedirectStrategy implements RedirectStrategy {
                 JTreeUtils.addChildToParent(child, redirectedNodeParent);
                 JTreeUtils.addChildToParent(redirectedNodeParent, redirectedTreeRoot);
 
-                log.debug("   node  {}", child.getUserObject());
-                log.debug("   parent  {}", redirectedNodeParent.getUserObject());
+                logging.logToOutput("   node  " + child.getUserObject());
+                logging.logToOutput("   parent  " + redirectedNodeParent.getUserObject());
             } else {
-                log.debug("{} is present in redirect tree, modifying it now as parent for {}", redirectedToUrl, redirectedUrl);
+                logging.logToOutput(redirectedToUrl + " is present in redirect tree, modifying it now as parent for " + redirectedUrl);
 
                 DefaultMutableTreeNode child = new DefaultMutableTreeNode(redirectedDiggerNode);
                 JTreeUtils.addChildToParent(child, redirectedNodeParent);
 
-                log.debug("   node {}", child.getUserObject());
-                log.debug("   parent {}", redirectedNodeParent.getUserObject());
+                logging.logToOutput("   node " + child.getUserObject());
+                logging.logToOutput("   parent " + redirectedNodeParent.getUserObject());
             }
         }
 
         if (JTreeUtils.notContainedV2(redirectedToUrl, treeRoot)) {
-            log.debug("Adding {} to regular tree [from redirect]", redirectedToUrl);
+            logging.logToOutput("Adding " + redirectedToUrl + " to regular tree [from redirect]");
 
             DefaultMutableTreeNode redirectedToNodeParent = JTreeUtils.findParentNode(redirectedToUrl, treeRoot);
             DiggerNode redirectedToNode = new DiggerNode(redirectedToNodeParent, redirectedToUrl, UrlUtils.HttpResponseCodeStatus.SUCCESS);
@@ -161,13 +160,13 @@ public class CustomRedirectStrategy implements RedirectStrategy {
         // if redirected url is present in regular tree, remove it
         //      additional check if e.g. http://example.com/blog => http://example.com/blog/ (don't remove)
         if (JTreeUtils.contains(redirectedUrl, treeRoot) && UrlUtils.notEqualUrl(redirectedUrl, redirectedToUrl) && UrlUtils.notEqualUrl(targetUrl, redirectedToUrl)) {
-            log.debug("Removing {} from regular tree",  redirectedUrl);
+            logging.logToOutput("Removing " + redirectedUrl + " from regular tree");
 
             DefaultMutableTreeNode node = JTreeUtils.getNode(redirectedUrl, treeRoot);
             DefaultMutableTreeNode parent = (DefaultMutableTreeNode) node.getParent();
 
-            log.debug("   node {}", node.getUserObject());
-            log.debug("   parent {}", parent.getUserObject());
+            logging.logToOutput("   node " + node.getUserObject());
+            logging.logToOutput("   parent " + parent.getUserObject());
             JTreeUtils.removeChildFromParent(node, parent);
         }
     }

@@ -1,14 +1,13 @@
 package core;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import burp.api.montoya.logging.Logging;
 
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class PausableThreadPoolExecutor extends ThreadPoolExecutor {
 
-    private static final Logger log = LoggerFactory.getLogger(PausableThreadPoolExecutor.class);
+    private Logging logging;
 
     private final AtomicBoolean isPaused;
     private final CyclicBarrier barrier;
@@ -20,10 +19,13 @@ public class PausableThreadPoolExecutor extends ThreadPoolExecutor {
         TimeUnit unit,
         BlockingQueue<Runnable> workQueue,
         ThreadFactory threadFactory,
-        int numberOfThreadsToPause) {
+        int numberOfThreadsToPause,
+        Logging logging) {
             super(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue, threadFactory);
             this.isPaused = new AtomicBoolean(false);
             this.barrier = new CyclicBarrier(numberOfThreadsToPause);
+
+            this.logging = logging;
     }
 
     public void pause() {
@@ -41,7 +43,7 @@ public class PausableThreadPoolExecutor extends ThreadPoolExecutor {
 
     @Override
     protected void beforeExecute(Thread t, Runnable r) {
-        log.debug("[BEFORE-THREAD-EXEC] Num of threads in a pool: {}, num of tasks in queue: {}", getPoolSize(), getQueue().size());
+        logging.logToOutput("[BEFORE-THREAD-EXEC] Num of threads in a pool: " + getPoolSize() + ", num of tasks in queue: " + getQueue().size());
         super.beforeExecute(t, r);
         if (isPaused.get()) {
             try {
