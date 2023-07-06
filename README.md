@@ -32,13 +32,15 @@ Interesting things that can be added:
 
 For those who don't want to use this as burp extension but as java app follow these steps
 1. clone git repository
-2. git checkout localDevelopment
-3. mvn clean install
-4. jar dirdigger
+2. cd DirDigger
+3. git checkout localDevelopment
+4. mvn clean install
+5. java -jar target/dirdigger-1.0-SNAPSHOT.jar
 
 ***
 
 If using as burp extension follow these steps
 1. clone git repository
-2. mvn clean install
-3. add `dirdigger-1.0-SNAPSHOT.jar` not `original-dirdigger-1.0-SNAPSHOT.jar` as original does not contain dependencies
+2. cd DirDigger
+3. mvn clean install
+4. add `dirdigger-1.0-SNAPSHOT.jar` not `original-dirdigger-1.0-SNAPSHOT.jar` as original does not contain dependencies
