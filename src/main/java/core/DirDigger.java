@@ -665,11 +665,11 @@ public class DirDigger {
         BufferedImage iconClientError = null;
         BufferedImage iconServerError = null;
         try {
-            iconInfo = ImageIO.read((DirDigger.class.getResource("../images/info-circle.png")));
-            iconSuccess = ImageIO.read((DirDigger.class.getResource("../images/success-circle.png")));
-            iconRedirect = ImageIO.read((DirDigger.class.getResource("../images/redirect-circle.png")));
-            iconClientError = ImageIO.read((DirDigger.class.getResource("../images/client_error-circle.png")));
-            iconServerError = ImageIO.read((DirDigger.class.getResource("../images/server_error-circle.png")));
+            iconInfo = ImageIO.read((DirDigger.class.getResource("/images/info-circle.png")));
+            iconSuccess = ImageIO.read((DirDigger.class.getResource("/images/success-circle.png")));
+            iconRedirect = ImageIO.read((DirDigger.class.getResource("/images/redirect-circle.png")));
+            iconClientError = ImageIO.read((DirDigger.class.getResource("/images/client_error-circle.png")));
+            iconServerError = ImageIO.read((DirDigger.class.getResource("/images/server_error-circle.png")));
         } catch (Exception e) {
             e.printStackTrace();
         }
