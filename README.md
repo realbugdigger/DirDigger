@@ -2,9 +2,11 @@
 
 ![DirDigger](https://raw.githubusercontent.com/realbugdigger/DirDigger/main/DD_MagGlass.svg)
 
-DirDigger is tool used for directory digging/busting and currently it provides few more features than its alternatives.
-It can be used for scanning web apps that have bug bounty programs as well as for ctfs.
-DirDigger was started as portfolio project as Burp extension but after were added features 
+DirDigger is an efficient directory digging and busting tool that offers a range of features surpassing those of its alternatives. It serves a dual purpose, being an invaluable asset for both CTF enthusiasts and individuals engaged in the scanning of web app directories and API URLs encompassing bug bounty programs.
+
+Originally conceived as a portfolio project to create a Burp extension similar to gobuster/dirbuster, DirDigger experienced the creation and implementation of novel ideas and features, transforming it into a fully comprehensive directory digging tool.
+
+
 DirDigger current features:
 - Burp extension as well as java application
 - Recursive (directory depth and thread number can be set)
@@ -20,7 +22,7 @@ DirDigger current features:
 - Stoping and Continuing execution
 - Saving progress to a file and option to load a file to continue execution or see results (usefull when working in team)
 
-Interesting things that can be added:
+To-do list for future enhancements:
 - Contexts (if domain has subdomains and you want to scan them at the same time, by changing context you can see progress and trees for preticular hostname)
     - In here maybe some cross context communication can exist (e.g. when one hostname redirects to another)
 - Pass selected urls, or 200 urls, to site map (one-way sync)
@@ -45,3 +47,9 @@ If using as burp extension follow these steps
 2. cd DirDigger
 3. mvn clean install
 4. add `dirdigger-1.0-SNAPSHOT.jar` not `original-dirdigger-1.0-SNAPSHOT.jar` as original does not contain dependencies
+
+***
+
+## Licence
+
+
