@@ -51,5 +51,5 @@ If using as burp extension follow these steps
 ***
 
 ## Licence
-
+This project is released under the [MIT License](https://github.com/realbugdigger/DirDigger/blob/main/LICENSE).
 
